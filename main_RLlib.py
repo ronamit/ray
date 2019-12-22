@@ -40,9 +40,9 @@ parser.add_argument('--seed', type=int,  help='random seed',
 args, _ = parser.parse_known_args()
 
 
-smoke_test = False  # True/False - short  run for debug
+smoke_test = True  # True/False - short  run for debug
 
-local_mode = False   # True/False - run non-parallel to get error messages and debugging
+local_mode = True   # True/False - run non-parallel to get error messages and debugging
 
 save_PDF = False  # False/True - save figures as PDF file
 
@@ -51,11 +51,11 @@ run_mode = 'New'   # 'New' / 'Load' / 'Continue'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
 result_dir_to_load = '/home/ron/PycharmProjects/rl-discount/RLlib_runs/saved/2019_11_11_14_55_36'
 
-args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
+args.n_reps = 50   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
-args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.05, 'num': 11}
+args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
+# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.05, 'num': 11}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
 gamma_guidance = 0.9999  # default discount factor for algorithm
