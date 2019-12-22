@@ -37,7 +37,8 @@ TD3_DEFAULT_CONFIG = merge_dicts(
         "gamma": 0.99,
         "actor_lr": 1e-3,
         "critic_lr": 1e-3,
-        "l2_reg": 0.0,
+        "l2_reg_critic": None,
+        "l2_reg_actor": None,
         "tau": 5e-3,
         "train_batch_size": 100,
         "use_huber": False,
@@ -52,6 +53,7 @@ TD3_DEFAULT_CONFIG = merge_dicts(
         "use_state_preprocessor": False,
     },
 )
+
 
 TD3Trainer = DDPGTrainer.with_updates(
     name="TD3", default_config=TD3_DEFAULT_CONFIG)

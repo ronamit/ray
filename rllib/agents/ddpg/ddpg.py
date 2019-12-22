@@ -138,7 +138,8 @@ DEFAULT_CONFIG = with_common_config({
     # Threshold of a huber loss
     "huber_threshold": 1.0,
     # Weights for L2 regularization
-    "l2_reg": 1e-6,
+    "l2_reg_critic": 1e-6,
+    "l2_reg_actor": 1e-6,
     # If not None, clip gradients during optimization at this value
     "grad_norm_clipping": None,
     # How many steps of the model to sample before learning starts.

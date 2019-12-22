@@ -228,18 +228,19 @@ class DDPGTFPolicy(DDPGPostprocessing, TFPolicy):
                 = self._build_actor_critic_loss(
                     q_t, q_tp1, q_t_det_policy)
 
-        if config["l2_reg"] is not None:
+        if config["l2_reg_actor"] is not None:
             for var in self.policy_vars:
                 if "bias" not in var.name:
-                    self.actor_loss += (config["l2_reg"] * tf.nn.l2_loss(var))
+                    self.actor_loss += (config["l2_reg_actor"] * tf.nn.l2_loss(var))
+        if config["l2_reg_critic"] is not None:
             for var in self.q_func_vars:
                 if "bias" not in var.name:
-                    self.critic_loss += (config["l2_reg"] * tf.nn.l2_loss(var))
+                    self.critic_loss += (config["l2_reg_critic"] * tf.nn.l2_loss(var))
             if self.config["twin_q"]:
                 for var in self.twin_q_func_vars:
                     if "bias" not in var.name:
                         self.critic_loss += (
-                            config["l2_reg"] * tf.nn.l2_loss(var))
+                            config["l2_reg_critic"] * tf.nn.l2_loss(var))
 
         # update_target_fn will be called periodically to copy Q network to
         # target Q network
