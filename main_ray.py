@@ -35,7 +35,7 @@ plt.rcParams.update(params)
 parser = argparse.ArgumentParser()
 parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)', default='')
 parser.add_argument('--seed', type=int,  help='random seed', default=1)
-parser.add_argument("--env", default="Humanoid-v2")  # OpenAI gym environment name
+parser.add_argument("--env", default="HalfCheeta-v2")  # OpenAI gym environment name
 parser.add_argument("--default_discount", default=0.999)  # Default Discount factor
 parser.add_argument('--timesteps_total', type=int,  default=1e5)
 parser.add_argument('--learning_starts', type=int,  default=1e4)
@@ -64,16 +64,13 @@ args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5,
 gamma_guidance = args.default_discount# default discount factor for algorithm
 l2_factor = None   # default L2 regularization factor for the Q-networks
 
-timesteps_total = args.timesteps_total
-learning_starts = args.learning_starts
-pure_exploration_steps = args.pure_exploration_steps
 
 if smoke_test:
     print('Smoke Test !!!!!!!')
     args.n_reps = 2
-    timesteps_total = 1e2
-    learning_starts = 1e1
-    pure_exploration_steps =1e1
+    args.timesteps_total = 1e2
+    args.learning_starts = 1e1
+    args.pure_exploration_steps =1e1
 
 # ---------------------------------------------------------------------------------------------------------------------------------#
 #  Get results
@@ -120,7 +117,7 @@ if run_mode in {'New', 'Continue'}:
             CustomTrainer,
             name=run_name,
             num_samples=args.n_reps,
-            stop={"timesteps_total": timesteps_total},
+            stop={"timesteps_total": args.timesteps_total},
             config={
                 "env":args.env,
                 "num_gpus": 0.15,
@@ -129,8 +126,8 @@ if run_mode in {'New', 'Continue'}:
                 "l2_reg_critic": l2_factor,
                 "l2_reg_actor": None,
                 # === Exploration ===
-                "learning_starts": learning_starts,
-                "pure_exploration_steps": pure_exploration_steps,
+                "learning_starts": args.learning_starts,
+                "pure_exploration_steps": args.pure_exploration_steps,
                 # # === Evaluation ===
                 # "evaluation_interval": 1 if args.smoke_test else 5,
                 # "evaluation_num_episodes": 1 if args.smoke_test else 10,
