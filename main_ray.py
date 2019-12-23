@@ -33,16 +33,19 @@ plt.rcParams.update(params)
 #  Set parameters
 # ---------------------------------------------------------------------------------------------------------------------------------#
 parser = argparse.ArgumentParser()
-parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)',
-                    default='')
-parser.add_argument('--seed', type=int,  help='random seed',
-                    default=1)
+parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)', default='')
+parser.add_argument('--seed', type=int,  help='random seed', default=1)
+parser.add_argument("--env", default="Humanoid-v2")  # OpenAI gym environment name
+parser.add_argument("--default_discount", default=0.999)  # Default Discount factor
+parser.add_argument('--timesteps_total', type=int,  default=1e5)
+parser.add_argument('--learning_starts', type=int,  default=1e4)
+parser.add_argument('--pure_exploration_steps', type=int,  default=1e4)
 args, _ = parser.parse_known_args()
 
 
-smoke_test = True  # True/False - short  run for debug
+smoke_test = False  # True/False - short  run for debug
 
-local_mode = True   # True/False - run non-parallel to get error messages and debugging
+local_mode = False   # True/False - run non-parallel to get error messages and debugging
 
 save_PDF = False  # False/True - save figures as PDF file
 
@@ -54,16 +57,16 @@ result_dir_to_load = '/home/ron/PycharmProjects/rl-discount/RLlib_runs/saved/201
 args.n_reps = 50   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
+# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.05, 'num': 11}
-# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
+args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
-gamma_guidance = 0.9999  # default discount factor for algorithm
+gamma_guidance = args.default_discount# default discount factor for algorithm
 l2_factor = None   # default L2 regularization factor for the Q-networks
 
-timesteps_total = 1e5
-learning_starts = 1e4
-pure_exploration_steps = 1e4
+timesteps_total = args.timesteps_total
+learning_starts = args.learning_starts
+pure_exploration_steps = args.pure_exploration_steps
 
 if smoke_test:
     print('Smoke Test !!!!!!!')
@@ -119,7 +122,7 @@ if run_mode in {'New', 'Continue'}:
             num_samples=args.n_reps,
             stop={"timesteps_total": timesteps_total},
             config={
-                "env": "HalfCheetah-v2",
+                "env":args.env,
                 "num_gpus": 0.15,
                 # === Algorithm ===
                 "gamma": gamma_guidance,
