@@ -45,7 +45,7 @@ args, _ = parser.parse_known_args()
 
 smoke_test = False  # True/False - short  run for debug
 
-local_mode = True   # True/False - run non-parallel to get error messages and debugging
+local_mode = False   # True/False - run non-parallel to get error messages and debugging
 
 save_PDF = False  # False/True - save figures as PDF file
 
@@ -120,7 +120,7 @@ if run_mode in {'New', 'Continue'}:
             stop={"timesteps_total": args.timesteps_total},
             config={
                 "env":args.env,
-                "num_gpus": 0.15,
+                "num_gpus": 0.1,
                 # === Algorithm ===
                 "gamma": gamma_guidance,
                 "l2_reg_critic": l2_factor,
