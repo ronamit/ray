@@ -35,7 +35,7 @@ plt.rcParams.update(params)
 parser = argparse.ArgumentParser()
 parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)', default='')
 parser.add_argument('--seed', type=int,  help='random seed', default=1)
-parser.add_argument("--env", default="HalfCheeta-v2")  # OpenAI gym environment name
+parser.add_argument("--env", default="HalfCheetah-v2")  # OpenAI gym environment name
 parser.add_argument("--default_discount", default=0.999)  # Default Discount factor
 parser.add_argument('--timesteps_total', type=int,  default=1e5)
 parser.add_argument('--learning_starts', type=int,  default=1e4)
@@ -45,7 +45,7 @@ args, _ = parser.parse_known_args()
 
 smoke_test = False  # True/False - short  run for debug
 
-local_mode = False   # True/False - run non-parallel to get error messages and debugging
+local_mode = True   # True/False - run non-parallel to get error messages and debugging
 
 save_PDF = False  # False/True - save figures as PDF file
 
@@ -57,9 +57,9 @@ result_dir_to_load = '/home/ron/PycharmProjects/rl-discount/RLlib_runs/saved/201
 args.n_reps = 50   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
+args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.05, 'num': 11}
-args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
+# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
 gamma_guidance = args.default_discount# default discount factor for algorithm
 l2_factor = None   # default L2 regularization factor for the Q-networks
