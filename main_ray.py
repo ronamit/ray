@@ -36,7 +36,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)', default='')
 parser.add_argument('--seed', type=int,  help='random seed', default=1)
 parser.add_argument("--env", default="HalfCheetah-v2")  # OpenAI gym environment name
-parser.add_argument("--default_discount", default=0.999)  # Default Discount factor
+parser.add_argument("--default_discount", default=0.99)  # Default Discount factor
 parser.add_argument('--timesteps_total', type=int,  default=1e5)
 parser.add_argument('--learning_starts', type=int,  default=1e4)
 parser.add_argument('--pure_exploration_steps', type=int,  default=1e4)
@@ -52,13 +52,13 @@ save_PDF = False  # False/True - save figures as PDF file
 # Option to load previous run results or continue unfinished run or start a new run:
 run_mode = 'New'   # 'New' / 'Load' / 'Continue'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = '/home/ron/PycharmProjects/rl-discount/RLlib_runs/saved/2019_11_11_14_55_36'
+result_dir_to_load = '/home/ron/PycharmProjects/linux2-ray/saved/2019_12_24_10_45_12'
 
-args.n_reps = 50   # 100 # number of experiment repetitions for each point in grid
+args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
-# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.05, 'num': 11}
+# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
+args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.02, 'num': 21}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
 gamma_guidance = args.default_discount# default discount factor for algorithm
