@@ -165,7 +165,7 @@ plt.errorbar(alg_param_grid, mean_R, yerr=std_R * ci_factor,
 plt.grid(True)
 plt.xlabel(xlabel)
 
-plt.ylabel('episode_reward_mean ')
+plt.ylabel('Average Episode Return')
 if save_PDF:
     plt.savefig(args.run_name + '.pdf', format='pdf', bbox_inches='tight')
 else:
