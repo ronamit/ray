@@ -50,7 +50,7 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results or continue unfinished run or start a new run:
-run_mode = 'Continue'   # 'New' / 'Load' / 'Continue'
+run_mode = 'Load'   # 'New' / 'Load' / 'Continue'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
 result_dir_to_load = './saved/2020_01_03_16_45_26'
 
