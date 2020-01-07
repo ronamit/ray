@@ -40,7 +40,7 @@ TD3_DEFAULT_CONFIG = merge_dicts(
         "l2_reg_critic": None,
         "l2_reg_actor": None,
         "tau": 5e-3,
-        "train_batch_size": 100,
+        "train_batch_size": 256,
         "use_huber": False,
         "target_network_update_freq": 0,
         "num_workers": 0,
