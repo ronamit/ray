@@ -107,7 +107,7 @@ if run_mode in {'New', 'Continue'}:
             gamma_guidance = param_config['gamma']
             l2_factor = param_config['L2']
             run_name = 'net-depth: {}, Config: {}'.format(net_depth, param_config['name'])
-            write_to_log('Starting: ' + run_name + 'time: {}'.format(time_now()),  args)
+            write_to_log('Starting: ' + run_name + ', time: {}'.format(time_now()),  args)
 
             critic_hiddens = [400] + [300] * (net_depth - 1)
 
@@ -139,7 +139,7 @@ if run_mode in {'New', 'Continue'}:
             # Save results so far:
             info_dict = {'mean_R': mean_R,
                          'std_R': std_R, 'net_depth_grid': net_depth_grid, 'param_configs_grid':param_configs_grid}
-            write_to_log('Finished: ' + run_name + 'time: {}'.format(time_now()), args)
+            write_to_log('Finished: ' + run_name + ', time: {}'.format(time_now()), args)
             write_to_log('mean_R: {}, std_R: {}'.format(mean_reward, std_reward), args)
             save_run_data(args, info_dict)
         # end for i_param_config
