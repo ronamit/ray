@@ -58,8 +58,8 @@ result_dir_to_load = './saved/2020_01_03_15_27_19'
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 
-net_depth_grid = [1, 2, 3, 4]
-param_configs_grid = [{'name': 'No Regularizer', 'gamma': 0.999, 'L2': 0.0},
+args.net_depth_grid = [1, 2, 3, 4]
+args.param_configs_grid = [{'name': 'No Regularizer', 'gamma': 0.999, 'L2': 0.0},
                       {'name': 'Discount Regularizer', 'gamma': 0.985, 'L2': 0.0},
                       {'name': 'L2 Regularizer', 'gamma': 0.999, 'L2': 0.006}]
 
@@ -87,7 +87,7 @@ else:
     # Start from scratch
     create_result_dir(args)
 
-    run_grid_shape = (len(net_depth_grid), len(param_configs_grid))
+    run_grid_shape = (len(args.net_depth_grid), len(args.param_configs_grid))
 
     mean_R = np.full(run_grid_shape, np.nan)
     std_R = np.full(run_grid_shape, np.nan)
@@ -97,8 +97,8 @@ if run_mode in {'New', 'Continue'}:
     ray.init(local_mode=local_mode)
     start_time = timeit.default_timer()
 
-    for i_net_depth,  net_depth in enumerate(net_depth_grid):
-        for i_param_config, param_config in enumerate(param_configs_grid):
+    for i_net_depth,  net_depth in enumerate(args.net_depth_grid):
+        for i_param_config, param_config in enumerate(args.param_configs_grid):
 
             if not np.isnan(mean_R[i_net_depth, i_param_config]):
                 continue  # this index already completed
@@ -138,7 +138,8 @@ if run_mode in {'New', 'Continue'}:
             std_R[i_net_depth, i_param_config] = std_reward
             # Save results so far:
             info_dict = {'mean_R': mean_R,
-                         'std_R': std_R, 'net_depth_grid': net_depth_grid, 'param_configs_grid':param_configs_grid}
+                         'std_R': std_R, 'net_depth_grid': args.net_depth_grid,
+                         'param_configs_grid':args.param_configs_grid}
             write_to_log('Finished: ' + run_name + ', time: {}'.format(time_now()), args)
             write_to_log('mean_R: {}, std_R: {}'.format(mean_reward, std_reward), args)
             save_run_data(args, info_dict)
@@ -150,8 +151,8 @@ if run_mode in {'New', 'Continue'}:
 
 ci_factor = 1.96/np.sqrt(args.n_reps)  # 95% confidence interval factor
 plt.figure()
-for i_param_config, param_config in enumerate(param_configs_grid):
-    plt.errorbar(net_depth_grid, mean_R[:, i_param_config], yerr=std_R[:, i_param_config] * ci_factor,
+for i_param_config, param_config in enumerate(args.param_configs_grid):
+    plt.errorbar(args.net_depth_grid, mean_R[:, i_param_config], yerr=std_R[:, i_param_config] * ci_factor,
                  marker='.', label=param_config['name'])
 plt.grid(True)
 plt.xlabel('Network Depth')
