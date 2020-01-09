@@ -7,6 +7,7 @@
 
 from __future__ import division, absolute_import, print_function
 import sys, os
+from copy import deepcopy
 from os.path import dirname, join, abspath
 project_dir = abspath(join(dirname(__file__), '..'))
 sys.path.insert(0, project_dir)
@@ -50,15 +51,15 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results or continue unfinished run or start a new run:
-run_mode = 'Load'   # 'New' / 'Load' / 'Continue'
+run_mode = 'Load'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_03_16_45_26'
+result_dir_to_load = './saved/2020_01_03_15_27_19'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.999, 'num': 15}
-# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.05, 'num': 21}
+# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
+args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.02, 'num': 21}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
 gamma_guidance = args.default_discount# default discount factor for algorithm
@@ -83,6 +84,26 @@ if run_mode in {'Load', 'Continue'}:
     std_R = info_dict['std_R']
     alg_param_grid = info_dict['alg_param_grid']
     print('Loaded parameters: \n', args, '\n', '-'*20)
+
+elif run_mode == 'ContinueNewGrid':
+    # Create a new gird according to param_grid_def defined above, and use the loaded results if compatible.
+    # all the other run  args (besides param_grid_def) are according to the loaded file
+    loaded_args, info_dict = load_run_data(result_dir_to_load)
+    loaded_alg_param_grid = info_dict['alg_param_grid']
+    loaded_param_grid_def = args.param_grid_def
+    alg_param_grid = np.around(get_grid(loaded_param_grid_def), decimals=10)
+    n_gammas = len(alg_param_grid)
+    mean_R = np.full(n_gammas, np.nan)
+    std_R = np.full(n_gammas, np.nan)
+    for i_grid, alg_param in enumerate(alg_param_grid):
+        if alg_param in loaded_alg_param_grid:
+            load_idx = np.nonzero(loaded_alg_param_grid == alg_param)
+            mean_R = info_dict['mean_R'][load_idx]
+            std_R = info_dict['std_R'][load_idx]
+    args = deepcopy(loaded_args)
+    args.param_grid_def = loaded_param_grid_def
+    print('Run parameters: \n', args, '\n', '-'*20)
+
 else:
     # Start from scratch
     create_result_dir(args)
@@ -164,6 +185,7 @@ plt.errorbar(alg_param_grid, mean_R, yerr=std_R * ci_factor,
              marker='.')
 plt.grid(True)
 plt.xlabel(xlabel)
+# plt.ylim([2200, 3000])
 
 plt.ylabel('Average Episode Return')
 if save_PDF:
