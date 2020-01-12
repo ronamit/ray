@@ -92,6 +92,7 @@ elif run_mode == 'ContinueNewGrid':
     create_results_backup(result_dir_to_load)
     loaded_alg_param_grid = info_dict['alg_param_grid']
     loaded_param_grid_def = args.param_grid_def
+    write_to_log('Continue run with new grid def {}, {}'.format(loaded_param_grid_def, time_now()), args)
     alg_param_grid = np.around(get_grid(loaded_param_grid_def), decimals=10)
     n_gammas = len(alg_param_grid)
     mean_R = np.full(n_gammas, np.nan)
