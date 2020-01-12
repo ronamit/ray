@@ -89,18 +89,21 @@ elif run_mode == 'ContinueNewGrid':
     # Create a new gird according to param_grid_def defined above, and use the loaded results if compatible.
     # all the other run  args (besides param_grid_def) are according to the loaded file
     loaded_args, info_dict = load_run_data(result_dir_to_load)
+    assert loaded_args.param_grid_def['type'] == args.param_grid_def['type']
     create_results_backup(result_dir_to_load)
     loaded_alg_param_grid = info_dict['alg_param_grid']
     loaded_param_grid_def = args.param_grid_def
     alg_param_grid = np.around(get_grid(loaded_param_grid_def), decimals=10)
-    n_gammas = len(alg_param_grid)
-    mean_R = np.full(n_gammas, np.nan)
-    std_R = np.full(n_gammas, np.nan)
+    n_grid = len(alg_param_grid)
+    mean_R = np.full(n_grid, np.nan)
+    std_R = np.full(n_grid, np.nan)
     for i_grid, alg_param in enumerate(alg_param_grid):
         if alg_param in loaded_alg_param_grid:
             load_idx = np.nonzero(loaded_alg_param_grid == alg_param)
-            mean_R = info_dict['mean_R'][load_idx]
-            std_R = info_dict['std_R'][load_idx]
+            mean_R[i_grid] = info_dict['mean_R'][load_idx]
+            std_R[i_grid] = info_dict['std_R'][load_idx]
+    if np.all(np.isnan(mean_R)):
+        raise ValueError('Loaded file  {} did not complete any of the desired grid points'.format(result_dir_to_load))
     args = deepcopy(loaded_args)
     args.param_grid_def = loaded_param_grid_def
     write_to_log('Continue run with new grid def {}, {}'.format(loaded_param_grid_def, time_now()), args)
@@ -114,7 +117,7 @@ else:
     mean_R = np.full(n_gammas, np.nan)
     std_R = np.full(n_gammas, np.nan)
 
-if run_mode in {'New', 'Continue'}:
+if run_mode != 'Load':
     # Run grid
     ray.init(local_mode=local_mode)
     start_time = timeit.default_timer()
