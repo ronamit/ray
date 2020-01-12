@@ -16,6 +16,7 @@ import argparse
 import timeit, time
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 try:
     from common.utils import set_random_seed, create_result_dir, save_run_data, load_run_data, write_to_log, time_now, get_grid
     from rllib.agents.ddpg.td3 import TD3Trainer
@@ -51,9 +52,9 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results or continue unfinished run or start a new run:
-run_mode = 'New'   # 'New' / 'Load' / 'Continue'
+run_mode = 'Load'   # 'New' / 'Load' / 'Continue'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_03_15_27_19'
+result_dir_to_load = './saved/2020_01_07_18_58_26'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
@@ -86,8 +87,9 @@ if run_mode in {'Load', 'Continue'}:
 else:
     # Start from scratch
     create_result_dir(args)
-
-    run_grid_shape = (len(args.net_depth_grid), len(args.param_configs_grid))
+    param_configs_grid = args.param_configs_grid
+    net_depth_grid = args.net_depth_grid
+    run_grid_shape = (len(net_depth_grid), len(param_configs_grid))
 
     mean_R = np.full(run_grid_shape, np.nan)
     std_R = np.full(run_grid_shape, np.nan)
@@ -97,8 +99,8 @@ if run_mode in {'New', 'Continue'}:
     ray.init(local_mode=local_mode)
     start_time = timeit.default_timer()
 
-    for i_net_depth,  net_depth in enumerate(args.net_depth_grid):
-        for i_param_config, param_config in enumerate(args.param_configs_grid):
+    for i_net_depth,  net_depth in enumerate(net_depth_grid):
+        for i_param_config, param_config in enumerate(param_configs_grid):
 
             if not np.isnan(mean_R[i_net_depth, i_param_config]):
                 continue  # this index already completed
@@ -138,8 +140,8 @@ if run_mode in {'New', 'Continue'}:
             std_R[i_net_depth, i_param_config] = std_reward
             # Save results so far:
             info_dict = {'mean_R': mean_R,
-                         'std_R': std_R, 'net_depth_grid': args.net_depth_grid,
-                         'param_configs_grid':args.param_configs_grid}
+                         'std_R': std_R, 'net_depth_grid': net_depth_grid,
+                         'param_configs_grid':param_configs_grid}
             write_to_log('Finished: ' + run_name + ', time: {}'.format(time_now()), args)
             write_to_log('mean_R: {}, std_R: {}'.format(mean_reward, std_reward), args)
             save_run_data(args, info_dict)
@@ -150,14 +152,15 @@ if run_mode in {'New', 'Continue'}:
                  time.strftime("%H hours, %M minutes and %S seconds", time.gmtime(stop_time - start_time)), args)
 
 ci_factor = 1.96/np.sqrt(args.n_reps)  # 95% confidence interval factor
-plt.figure()
-for i_param_config, param_config in enumerate(args.param_configs_grid):
-    plt.errorbar(args.net_depth_grid, mean_R[:, i_param_config], yerr=std_R[:, i_param_config] * ci_factor,
+ax = plt.figure().gca()
+for i_param_config, param_config in enumerate(param_configs_grid):
+    plt.errorbar(net_depth_grid, mean_R[:, i_param_config], yerr=std_R[:, i_param_config] * ci_factor,
                  marker='.', label=param_config['name'])
 plt.grid(True)
 plt.xlabel('Network Depth')
+ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 # plt.ylim([2200, 3000])
-
+plt.legend()
 plt.ylabel('Average Episode Return')
 if save_PDF:
     plt.savefig(args.run_name + '.pdf', format='pdf', bbox_inches='tight')

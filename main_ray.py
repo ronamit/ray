@@ -18,7 +18,7 @@ import timeit, time
 import numpy as np
 import matplotlib.pyplot as plt
 try:
-    from common.utils import set_random_seed, create_result_dir, save_run_data, load_run_data, write_to_log, time_now, get_grid
+    from common.utils import set_random_seed, create_result_dir, save_run_data, load_run_data, write_to_log, time_now, get_grid, create_results_backup
     from rllib.agents.ddpg.td3 import TD3Trainer
     from  rllib.agents.ddpg.ddpg_policy import DDPGTFPolicy
 except ImportError as error:
@@ -89,6 +89,7 @@ elif run_mode == 'ContinueNewGrid':
     # Create a new gird according to param_grid_def defined above, and use the loaded results if compatible.
     # all the other run  args (besides param_grid_def) are according to the loaded file
     loaded_args, info_dict = load_run_data(result_dir_to_load)
+    create_results_backup(result_dir_to_load)
     loaded_alg_param_grid = info_dict['alg_param_grid']
     loaded_param_grid_def = args.param_grid_def
     alg_param_grid = np.around(get_grid(loaded_param_grid_def), decimals=10)

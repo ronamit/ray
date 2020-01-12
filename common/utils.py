@@ -12,6 +12,7 @@ import pickle
 from functools import reduce
 import shutil, glob
 
+
 # -----------------------------------------------------------------------------------------------------------#
 #  Useful functions
 # -----------------------------------------------------------------------------------------------------------#
@@ -117,7 +118,11 @@ def load_saved_vars(result_dir):
     print('-' * 70)
     return loaded_args, loaded_dict
 
-
+def create_results_backup(result_dir):
+    src = os.path.join(result_dir, 'run_data.pkl')
+    dst = os.path.join(result_dir, 'backup_run_data.pkl')
+    shutil.copyfile(src, dst)
+    print('Backuo of run data with original grid was saved in ', dst)
 
 def save_code(save_dir):
     # Create backup of code
