@@ -115,7 +115,7 @@ else:
     mean_R = np.full(n_gammas, np.nan)
     std_R = np.full(n_gammas, np.nan)
 
-if run_mode in {'New', 'Continue'}:
+if run_mode != 'Load':
     # Run grid
     ray.init(local_mode=local_mode)
     start_time = timeit.default_timer()
