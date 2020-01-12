@@ -51,14 +51,14 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results or continue unfinished run or start a new run:
-run_mode = 'New'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid'
+run_mode = 'ContinueNewGrid'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_03_15_27_19'
+result_dir_to_load = './saved/2020_01_09_13_16_18'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.995, 'stop': 0.99, 'num': 10}
+args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.995, 'stop': 0.9, 'num': 20}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 0.02, 'num': 21}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
@@ -89,17 +89,20 @@ elif run_mode == 'ContinueNewGrid':
     # Create a new gird according to param_grid_def defined above, and use the loaded results if compatible.
     # all the other run  args (besides param_grid_def) are according to the loaded file
     loaded_args, info_dict = load_run_data(result_dir_to_load)
+    assert loaded_args.param_grid_def['type'] == args.param_grid_def['type']
     loaded_alg_param_grid = info_dict['alg_param_grid']
     loaded_param_grid_def = args.param_grid_def
     alg_param_grid = np.around(get_grid(loaded_param_grid_def), decimals=10)
-    n_gammas = len(alg_param_grid)
-    mean_R = np.full(n_gammas, np.nan)
-    std_R = np.full(n_gammas, np.nan)
+    n_grid = len(alg_param_grid)
+    mean_R = np.full(n_grid, np.nan)
+    std_R = np.full(n_grid, np.nan)
     for i_grid, alg_param in enumerate(alg_param_grid):
         if alg_param in loaded_alg_param_grid:
             load_idx = np.nonzero(loaded_alg_param_grid == alg_param)
-            mean_R = info_dict['mean_R'][load_idx]
-            std_R = info_dict['std_R'][load_idx]
+            mean_R[i_grid] = info_dict['mean_R'][load_idx]
+            std_R[i_grid] = info_dict['std_R'][load_idx]
+    if np.all(np.isnan(mean_R)):
+        raise ValueError('Loaded file  {} did not complete any of the desired grid points'.format(result_dir_to_load))
     args = deepcopy(loaded_args)
     args.param_grid_def = loaded_param_grid_def
     print('Run parameters: \n', args, '\n', '-'*20)
