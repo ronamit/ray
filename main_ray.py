@@ -36,7 +36,7 @@ plt.rcParams.update(params)
 parser = argparse.ArgumentParser()
 parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)', default='')
 parser.add_argument('--seed', type=int,  help='random seed', default=1)
-parser.add_argument("--env", default="Hopper-v2")  # OpenAI gym environment name
+parser.add_argument("--env", default="Ant-v2")  # OpenAI gym environment name
 parser.add_argument("--default_discount", default=0.999)  # Default Discount factor
 parser.add_argument('--timesteps_total', type=int,  default=1e5)
 parser.add_argument('--learning_starts', type=int,  default=1e4)
@@ -51,18 +51,18 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
-run_mode = 'Load'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid'
+run_mode = 'New'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_12_15_43_35'
+result_dir_to_load = './saved/2020_01_09_13_16_18'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.95, 'stop': 0.995, 'num': 10}
-args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 1., 'num': 21}
+args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.85, 'stop': 0.5, 'num': 8}
+# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 1., 'num': 21}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
-gamma_guidance = args.default_discount# default discount factor for algorithm
+gamma_guidance = args.default_discount # default discount factor for algorithm
 l2_factor = None   # default L2 regularization factor for the Q-networks
 
 
@@ -85,29 +85,38 @@ if run_mode in {'Load', 'Continue'}:
     alg_param_grid = info_dict['alg_param_grid']
     print('Loaded parameters: \n', args, '\n', '-'*20)
 
-elif run_mode == 'ContinueNewGrid':
+elif run_mode in {'ContinueNewGrid', 'ContinueAddGrid'}:
     # Create a new gird according to param_grid_def defined above, and use the loaded results if compatible.
     # all the other run  args (besides param_grid_def) are according to the loaded file
     loaded_args, info_dict = load_run_data(result_dir_to_load)
     assert loaded_args.param_grid_def['type'] == args.param_grid_def['type']
     create_results_backup(result_dir_to_load)
     loaded_alg_param_grid = info_dict['alg_param_grid']
-    loaded_param_grid_def = args.param_grid_def
-    alg_param_grid = np.around(get_grid(loaded_param_grid_def), decimals=10)
-    n_grid = len(alg_param_grid)
+    new_param_grid_def = args.param_grid_def
+    new_alg_param_grid = np.around(get_grid(new_param_grid_def), decimals=10)
+    args = deepcopy(loaded_args)
+    if run_mode == 'ContinueAddGrid':
+        new_alg_param_grid = np.union1d(loaded_alg_param_grid, new_alg_param_grid)
+        args.param_grid_def['spacing'] = 'list',
+        args.param_grid_def['list'] = new_alg_param_grid
+        if args.param_grid_def['type'] == 'gamma_guidance':
+            new_alg_param_grid[::-1].sort()
+    else:
+        args.param_grid_def = new_param_grid_def
+    n_grid = len(new_alg_param_grid)
     mean_R = np.full(n_grid, np.nan)
     std_R = np.full(n_grid, np.nan)
-    for i_grid, alg_param in enumerate(alg_param_grid):
+    # now take completed results from loaded data:
+    for i_grid, alg_param in enumerate(new_alg_param_grid):
         if alg_param in loaded_alg_param_grid:
             load_idx = np.nonzero(loaded_alg_param_grid == alg_param)
             mean_R[i_grid] = info_dict['mean_R'][load_idx]
             std_R[i_grid] = info_dict['std_R'][load_idx]
     if np.all(np.isnan(mean_R)):
-        raise ValueError('Loaded file  {} did not complete any of the desired grid points'.format(result_dir_to_load))
-    args = deepcopy(loaded_args)
-    args.param_grid_def = loaded_param_grid_def
-    write_to_log('Continue run with new grid def {}, {}'.format(loaded_param_grid_def, time_now()), args)
+        raise Warning('Loaded file  {} did not complete any of the desired grid points'.format(result_dir_to_load))
+    write_to_log('Continue run with new grid def {}, {}'.format(new_param_grid_def, time_now()), args)
     write_to_log('Run parameters: \n' + str(args) + '\n' + '-'*20, args)
+    alg_param_grid = new_alg_param_grid
 
 else:
     # Start from scratch
@@ -117,7 +126,7 @@ else:
     mean_R = np.full(n_gammas, np.nan)
     std_R = np.full(n_gammas, np.nan)
 
-if run_mode in {'New', 'Continue', 'ContinueNewGrid'}:
+if run_mode in {'New', 'Continue', 'ContinueNewGrid', 'ContinueAddGrid'}:
     # Run grid
     ray.init(local_mode=local_mode)
     start_time = timeit.default_timer()
