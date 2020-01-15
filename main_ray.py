@@ -51,9 +51,9 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
-run_mode = 'New'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
+run_mode = 'Continue'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_09_13_16_18'
+result_dir_to_load = './saved/2020_01_12_19_16_14'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
@@ -80,6 +80,7 @@ if smoke_test:
 if run_mode in {'Load', 'Continue'}:
     #  Load previous run
     args, info_dict = load_run_data(result_dir_to_load)
+    # args.result_dir = args.result_dir.replace("linux2", "linux4")
     mean_R = info_dict['mean_R']
     std_R = info_dict['std_R']
     alg_param_grid = info_dict['alg_param_grid']

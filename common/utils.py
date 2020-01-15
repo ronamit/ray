@@ -60,8 +60,8 @@ def create_result_dir(args, run_experiments=True):
         write_to_log('Results dir: ' + args.result_dir, args)
         write_to_log('-' * 50, args)
         # set the path to pre-trained model, in case it is loaded (if empty - set according to run_name)
-        if not hasattr(args, 'load_model_path') or args.load_model_path == '':
-            args.load_model_path = os.path.join(args.result_dir, 'model.pt')
+        # if not hasattr(args, 'load_model_path') or args.load_model_path == '':
+        #     args.load_model_path = os.path.join(args.result_dir, 'model.pt')
 
         save_code(args.result_dir)
     else:
