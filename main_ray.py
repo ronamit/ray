@@ -48,18 +48,19 @@ smoke_test = False  # True/False - short  run for debug
 
 local_mode = False   # True/False - run non-parallel to get error messages and debugging
 
-save_PDF = False  # False/True - save figures as PDF file
+save_PDF = True  # False/True - save figures as PDF file
 
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
-run_mode = 'Continue'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
+run_mode = 'ContinueAddGrid'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_12_19_16_14'
+result_dir_to_load = './saved/2020_01_19_10_56_15'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.85, 'stop': 0.5, 'num': 8}
-# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 0.0, 'stop': 1., 'num': 21}
+# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.85, 'stop': 0.5, 'num': 8}
+# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 2.25e-2, 'stop': 5e-2, 'num': 10}
+args.param_grid_def = {'type': 'L2_factor', 'spacing': 'endpoints', 'start': 2.25e-2, 'end': 5e-2, 'num': 11}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
 gamma_guidance = args.default_discount # default discount factor for algorithm
