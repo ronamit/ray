@@ -20,16 +20,19 @@ import matplotlib.pyplot as plt
 try:
     from common.utils import set_random_seed, create_result_dir, save_run_data, load_run_data, write_to_log, time_now, get_grid, create_results_backup
     from rllib.agents.ddpg.td3 import TD3Trainer
-    from  rllib.agents.ddpg.ddpg_policy import DDPGTFPolicy
+    from rllib.agents.ddpg.ddpg_policy import DDPGTFPolicy
 except ImportError as error:
     raise ImportError(str(error) + '\n Try this:  1. Go to main project dir 2. $ python3 setup.py install ')
 
 CustomTrainer = TD3Trainer.with_updates(
     default_policy=DDPGTFPolicy)
 
-params = {'font.size': 10, 'lines.linewidth': 2, 'legend.fontsize': 10, 'legend.handlelength': 2, 'pdf.fonttype':42, 'ps.fonttype':42}
-plt.rcParams.update(params)
-
+plt_params = {'font.size': 10,
+          'lines.linewidth': 2, 'legend.fontsize': 10, 'legend.handlelength': 2,
+          'pdf.fonttype':42, 'ps.fonttype':42,
+          'axes.labelsize': 16, 'axes.titlesize': 16,
+          'xtick.labelsize': 12, 'ytick.labelsize': 12}
+plt.rcParams.update(plt_params)
 # ---------------------------------------------------------------------------------------------------------------------------------#
 #  Set parameters
 # ---------------------------------------------------------------------------------------------------------------------------------#
