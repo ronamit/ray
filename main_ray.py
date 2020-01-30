@@ -51,16 +51,16 @@ local_mode = False   # True/False - run non-parallel to get error messages and d
 save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
-run_mode = 'ContinueAddGrid'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
+run_mode = 'Load'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_19_10_56_15'
+result_dir_to_load = './saved/2020_01_21_13_34_49'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.85, 'stop': 0.5, 'num': 8}
+args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.99, 'stop': 0.999, 'num': 10}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 2.25e-2, 'stop': 5e-2, 'num': 10}
-args.param_grid_def = {'type': 'L2_factor', 'spacing': 'endpoints', 'start': 2.25e-2, 'end': 5e-2, 'num': 12}
+# args.param_grid_def = {'type': 'L2_factor', 'spacing': 'endpoints', 'start': 2.25e-2, 'end': 5e-2, 'num': 12}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
 
 gamma_guidance = args.default_discount # default discount factor for algorithm
@@ -81,7 +81,7 @@ if smoke_test:
 if run_mode in {'Load', 'Continue'}:
     #  Load previous run
     args, info_dict = load_run_data(result_dir_to_load)
-    # args.result_dir = args.result_dir.replace("linux2", "linux4")
+    args.result_dir = args.result_dir.replace("linux2", "linux4")
     mean_R = info_dict['mean_R']
     std_R = info_dict['std_R']
     alg_param_grid = info_dict['alg_param_grid']
@@ -186,26 +186,35 @@ if run_mode in {'New', 'Continue', 'ContinueNewGrid', 'ContinueAddGrid'}:
     write_to_log('Total runtime: ' +
                  time.strftime("%H hours, %M minutes and %S seconds", time.gmtime(stop_time - start_time)), args)
 
+
 if args.param_grid_def['type'] == 'L2_factor':
     alg_param_grid *= 1e2
-    xlabel = 'L2 Factor (1e-2) '
+    xlabel = r'$L_2$ Factor (1e-2)'
+    title_prefix = args.env + r', $L_2$ Reegularization'
 elif args.param_grid_def['type'] == 'gamma_guidance':
-    xlabel = 'Guidance Discount Factor'
+    xlabel = r'$\gamma$ (Guidance Discount Factor)'
+    title_prefix = args.env + r', Discount Regularization'
 else:
     raise ValueError('Unrecognized args.grid_type')
 
 
 ci_factor = 1.96/np.sqrt(args.n_reps)  # 95% confidence interval factor
 plt.figure()
-plt.errorbar(alg_param_grid, mean_R, yerr=std_R * ci_factor,
-             marker='.')
+# plt.errorbar(alg_param_grid, mean_R, yerr=std_R * ci_factor,
+             # marker='.')
+plt.plot(alg_param_grid, mean_R)
+
+plt.fill_between(alg_param_grid, mean_R - std_R * ci_factor, mean_R + std_R * ci_factor,
+                 color='blue', alpha=0.2)
 plt.grid(True)
 plt.xlabel(xlabel)
 # plt.ylim([2200, 3000])
 
 plt.ylabel('Average Episode Return')
 if save_PDF:
+    plt.title(title_prefix)
     plt.savefig(args.run_name + '.pdf', format='pdf', bbox_inches='tight')
 else:
-    plt.title('Episode Reward Mean +- 95% CI, ' + ' \n ' + str(args.result_dir))
+    plt.title(title_prefix + ' \n ' + str(args.result_dir))
+    # + 'Episode Reward Mean +- 95% CI, ' + ' \n '
 plt.show()
