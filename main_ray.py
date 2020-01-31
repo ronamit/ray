@@ -51,12 +51,12 @@ smoke_test = False  # True/False - short  run for debug
 
 local_mode = False   # True/False - run non-parallel to get error messages and debugging
 
-save_PDF = False  # False/True - save figures as PDF file
+save_PDF = True  # False/True - save figures as PDF file
 
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
 run_mode = 'Load'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_21_13_34_49'
+result_dir_to_load = './saved/2020_01_03_15_27_19'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
@@ -193,7 +193,7 @@ if run_mode in {'New', 'Continue', 'ContinueNewGrid', 'ContinueAddGrid'}:
 if args.param_grid_def['type'] == 'L2_factor':
     alg_param_grid *= 1e2
     xlabel = r'$L_2$ Factor (1e-2)'
-    title_prefix = args.env + r', $L_2$ Reegularization'
+    title_prefix = args.env + r', $L_2$ Regularization'
 elif args.param_grid_def['type'] == 'gamma_guidance':
     xlabel = r'$\gamma$ (Guidance Discount Factor)'
     title_prefix = args.env + r', Discount Regularization'
