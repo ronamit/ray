@@ -9,7 +9,7 @@ MB = 1024 * 1024
 
 
 @ray.remote(memory=100 * MB)
-class Actor(object):
+class Actor:
     def __init__(self):
         pass
 
@@ -18,7 +18,7 @@ class Actor(object):
 
 
 @ray.remote(object_store_memory=100 * MB)
-class Actor2(object):
+class Actor2:
     def __init__(self):
         pass
 
@@ -152,4 +152,6 @@ class TestMemoryScheduling(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    import pytest
+    import sys
+    sys.exit(pytest.main(["-v", __file__]))

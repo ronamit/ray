@@ -10,16 +10,16 @@ OBJECT_TOO_LARGE = ray.exceptions.ObjectStoreFullError
 
 
 @ray.remote
-class LightActor(object):
+class LightActor:
     def __init__(self):
         pass
 
     def sample(self):
-        return "tiny_return_value"
+        return np.zeros(5 * MB, dtype=np.uint8)
 
 
 @ray.remote
-class GreedyActor(object):
+class GreedyActor:
     def __init__(self):
         pass
 
@@ -29,9 +29,8 @@ class GreedyActor(object):
 
 class TestMemoryLimits(unittest.TestCase):
     def testWithoutQuota(self):
+        self._run(100 * MB, None, None)
         self.assertRaises(OBJECT_EVICTED, lambda: self._run(None, None, None))
-        self.assertRaises(OBJECT_EVICTED,
-                          lambda: self._run(100 * MB, None, None))
         self.assertRaises(OBJECT_EVICTED,
                           lambda: self._run(None, 100 * MB, None))
 
@@ -69,7 +68,8 @@ class TestMemoryLimits(unittest.TestCase):
             for _ in range(5):
                 r_a = a.sample.remote()
                 for _ in range(20):
-                    ray.get(b.sample.remote())
+                    new_oid = b.sample.remote()
+                    ray.get(new_oid)
                 ray.get(r_a)
             ray.get(z)
         except Exception as e:
@@ -82,4 +82,6 @@ class TestMemoryLimits(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    import pytest
+    import sys
+    sys.exit(pytest.main(["-v", __file__]))

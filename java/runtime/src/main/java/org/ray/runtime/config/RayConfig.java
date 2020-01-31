@@ -11,6 +11,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+
 import org.ray.api.id.JobId;
 import org.ray.runtime.generated.Common.WorkerType;
 import org.ray.runtime.util.NetworkUtil;
@@ -52,6 +54,7 @@ public class RayConfig {
   public final Long objectStoreSize;
 
   public final String rayletSocketName;
+  private int nodeManagerPort;
   public final List<String> rayletConfigParameters;
 
   public final String jobResourcePath;
@@ -143,7 +146,12 @@ public class RayConfig {
     } else {
       this.redisAddress = null;
     }
-    headRedisPort = config.getInt("ray.redis.head-port");
+
+    if (config.hasPath("ray.redis.head-port")) {
+      headRedisPort = config.getInt("ray.redis.head-port");
+    } else {
+      headRedisPort = NetworkUtil.getUnusedPort();
+    }
     numberRedisShards = config.getInt("ray.redis.shard-number");
     headRedisPassword = config.getString("ray.redis.head-password");
     redisPassword = config.getString("ray.redis.password");
@@ -154,11 +162,18 @@ public class RayConfig {
 
     // Raylet socket name.
     rayletSocketName = config.getString("ray.raylet.socket-name");
+    // Raylet node manager port.
+    nodeManagerPort = config.getInt("ray.raylet.node-manager-port");
+    if (nodeManagerPort == 0) {
+      Preconditions.checkState(this.redisAddress == null,
+          "Java worker started by raylet should accept the node manager port from raylet.");
+      nodeManagerPort = NetworkUtil.getUnusedPort();
+    }
 
     // Raylet parameters.
     rayletConfigParameters = new ArrayList<>();
     Config rayletConfig = config.getConfig("ray.raylet.config");
-    for (Map.Entry<String,ConfigValue> entry : rayletConfig.entrySet()) {
+    for (Map.Entry<String, ConfigValue> entry : rayletConfig.entrySet()) {
       String parameter = entry.getKey() + "," + entry.getValue().unwrapped();
       rayletConfigParameters.add(parameter);
     }
@@ -211,6 +226,10 @@ public class RayConfig {
     return this.jobId;
   }
 
+  public int getNodeManagerPort() {
+    return nodeManagerPort;
+  }
+
   @Override
   public String toString() {
     return "RayConfig{"
@@ -243,7 +262,7 @@ public class RayConfig {
    * 1. System properties.
    * 2. `ray.conf` file.
    * 3. `ray.default.conf` file.
-  */
+   */
   public static RayConfig create() {
     ConfigFactory.invalidateCaches();
     Config config = ConfigFactory.systemProperties();

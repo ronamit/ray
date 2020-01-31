@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import shutil
 import tempfile
 import threading
@@ -17,11 +13,11 @@ from ray.autoscaler.autoscaler import StandardAutoscaler, LoadMetrics, \
 from ray.autoscaler.tags import TAG_RAY_NODE_TYPE, TAG_RAY_NODE_STATUS, \
     STATUS_UP_TO_DATE, STATUS_UPDATE_FAILED
 from ray.autoscaler.node_provider import NODE_PROVIDERS, NodeProvider
-from ray.tests.utils import RayTestTimeoutException
+from ray.test_utils import RayTestTimeoutException
 import pytest
 
 
-class MockNode(object):
+class MockNode:
     def __init__(self, node_id, tags):
         self.node_id = node_id
         self.state = "pending"
@@ -36,7 +32,7 @@ class MockNode(object):
         return True
 
 
-class MockProcessRunner(object):
+class MockProcessRunner:
     def __init__(self, fail_cmds=[]):
         self.calls = []
         self.fail_cmds = fail_cmds
@@ -1084,4 +1080,5 @@ class AutoscalingTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    import sys
+    sys.exit(pytest.main(["-v", __file__]))

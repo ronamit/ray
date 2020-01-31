@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import click
 from datetime import datetime
 import json
@@ -71,12 +67,9 @@ def cli(logging_level, logging_format):
     type=str,
     help="the IP address of this node")
 @click.option(
-    "--redis-address",
-    required=False,
-    type=str,
-    help="the address to use for connecting to Redis")
+    "--redis-address", required=False, type=str, help="same as --address")
 @click.option(
-    "--address", required=False, type=str, help="same as --redis-address")
+    "--address", required=False, type=str, help="the address to use for Ray")
 @click.option(
     "--redis-port",
     required=False,
@@ -98,6 +91,7 @@ def cli(logging_level, logging_format):
     "--redis-password",
     required=False,
     type=str,
+    default=ray_constants.REDIS_DEFAULT_PASSWORD,
     help="If provided, secure Redis ports with this password")
 @click.option(
     "--redis-shard-ports",
@@ -159,17 +153,16 @@ def cli(logging_level, logging_format):
     help="provide this argument for the head node")
 @click.option(
     "--include-webui",
-    is_flag=True,
-    default=False,
+    default=None,
+    type=bool,
     help="provide this argument if the UI should be started")
 @click.option(
     "--webui-host",
     required=False,
-    type=click.Choice(["127.0.0.1", "0.0.0.0"]),
-    default="127.0.0.1",
-    help="The host to bind the web UI server to. Can either be 127.0.0.1 "
-    "(localhost) or 0.0.0.0 (available from all interfaces). By default, this "
-    "is set to 127.0.0.1 to prevent access from external machines.")
+    default="localhost",
+    help="The host to bind the web UI server to. Can either be localhost "
+    "(127.0.0.1) or 0.0.0.0 (available from all interfaces). By default, this "
+    "is set to localhost to prevent access from external machines.")
 @click.option(
     "--block",
     is_flag=True,
@@ -234,9 +227,9 @@ def cli(logging_level, logging_format):
     default=False,
     help="Specify whether load code from local file or GCS serialization.")
 @click.option(
-    "--use-pickle",
+    "--use-pickle/--no-use-pickle",
     is_flag=True,
-    default=False,
+    default=ray.cloudpickle.FAST_CLOUDPICKLE_USED,
     help="Use pickle for serialization.")
 def start(node_ip_address, redis_address, address, redis_port,
           num_redis_shards, redis_max_clients, redis_password,
@@ -247,6 +240,10 @@ def start(node_ip_address, redis_address, address, redis_port,
           plasma_store_socket_name, raylet_socket_name, temp_dir, include_java,
           java_worker_options, load_code_from_local, use_pickle,
           internal_config):
+    if redis_address is not None:
+        raise DeprecationWarning("The --redis-address argument is "
+                                 "deprecated. Please use --address instead.")
+
     # Convert hostnames to numerical IP address.
     if node_ip_address is not None:
         node_ip_address = services.address_to_ip(node_ip_address)
@@ -327,25 +324,25 @@ def start(node_ip_address, redis_address, address, redis_port,
             include_java=False,
         )
 
-        node = ray.node.Node(ray_params, head=True, shutdown_at_exit=block)
+        node = ray.node.Node(
+            ray_params, head=True, shutdown_at_exit=block, spawn_reaper=block)
         redis_address = node.redis_address
 
         logger.info(
             "\nStarted Ray on this node. You can add additional nodes to "
             "the cluster by calling\n\n"
-            "    ray start --redis-address {}{}{}\n\n"
+            "    ray start --address='{}'{}\n\n"
             "from the node you wish to add. You can connect a driver to the "
             "cluster from Python by running\n\n"
             "    import ray\n"
-            "    ray.init(redis_address=\"{}{}{}\")\n\n"
+            "    ray.init(address='auto'{})\n\n"
             "If you have trouble connecting from a different machine, check "
             "that your firewall is configured properly. If you wish to "
             "terminate the processes that have been started, run\n\n"
             "    ray stop".format(
-                redis_address, " --redis-password "
-                if redis_password else "", redis_password if redis_password
-                else "", redis_address, "\", redis_password=\""
-                if redis_password else "", redis_password
+                redis_address, " --redis-password='" + redis_password + "'"
+                if redis_password else "",
+                ", redis_password='" + redis_password + "'"
                 if redis_password else ""))
     else:
         # Start Ray on a non-head node.
@@ -380,7 +377,7 @@ def start(node_ip_address, redis_address, address, redis_port,
         redis_client = services.create_redis_client(
             redis_address, password=redis_password)
 
-        # Check that the verion information on this node matches the version
+        # Check that the version information on this node matches the version
         # information that the cluster was started with.
         services.check_version_info(redis_client)
 
@@ -395,7 +392,8 @@ def start(node_ip_address, redis_address, address, redis_port,
         check_no_existing_redis_clients(ray_params.node_ip_address,
                                         redis_client)
         ray_params.update(redis_address=redis_address)
-        node = ray.node.Node(ray_params, head=False, shutdown_at_exit=block)
+        node = ray.node.Node(
+            ray_params, head=False, shutdown_at_exit=block, spawn_reaper=block)
         logger.info("\nStarted Ray on this node. If you wish to terminate the "
                     "processes that have been started, run\n\n"
                     "    ray stop")
@@ -415,7 +413,17 @@ def start(node_ip_address, redis_address, address, redis_port,
 
 
 @cli.command()
-def stop():
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    help="If set, ray will send SIGKILL instead of SIGTERM.")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="If set, ray prints out more information about processes to kill.")
+def stop(force, verbose):
     # Note that raylet needs to exit before object store, otherwise
     # it cannot exit gracefully.
     processes_to_kill = [
@@ -426,33 +434,47 @@ def stop():
         # See STANDARD FORMAT SPECIFIERS section of
         # http://man7.org/linux/man-pages/man1/ps.1.html
         # about comm and args. This can help avoid killing non-ray processes.
+        # Format:
+        # Keyword to filter, filter by command (True)/filter by args (False)
         ["raylet", True],
         ["plasma_store", True],
         ["raylet_monitor", True],
         ["monitor.py", False],
-        ["redis-server", True],
+        ["redis-server", False],
         ["default_worker.py", False],  # Python worker.
-        [" ray_", True],  # Python worker.
+        ["ray::", True],  # Python worker.
         ["org.ray.runtime.runner.worker.DefaultWorker", False],  # Java worker.
         ["log_monitor.py", False],
         ["reporter.py", False],
         ["dashboard.py", False],
+        ["ray_process_reaper.py", False],
     ]
 
     for process in processes_to_kill:
-        filter = process[0]
-        if process[1]:
-            format = "pid,comm"
+        keyword, filter_by_cmd = process
+        if filter_by_cmd:
+            ps_format = "pid,comm"
             # According to https://superuser.com/questions/567648/ps-comm-format-always-cuts-the-process-name,  # noqa: E501
             # comm only prints the first 15 characters of the executable name.
-            if len(filter) > 15:
+            if len(keyword) > 15:
                 raise ValueError("The filter string should not be more than" +
                                  " 15 characters. Actual length: " +
-                                 str(len(filter)) + ". Filter: " + filter)
+                                 str(len(keyword)) + ". Filter: " + keyword)
         else:
-            format = "pid,args"
-        command = ("kill -9 $(ps ax -o " + format + " | grep '" + filter +
-                   "' | grep -v grep | " + "awk '{ print $1 }') 2> /dev/null")
+            ps_format = "pid,args"
+
+        debug_operator = "| tee /dev/stderr" if verbose else ""
+
+        command = (
+            "kill -s {} $(ps ax -o {} | grep {} | grep -v grep {} |"
+            "awk '{{ print $1 }}') 2> /dev/null".format(
+                # ^^ This is how you escape braces in python format string.
+                "KILL" if force else "TERM",
+                ps_format,
+                keyword,
+                debug_operator))
+        if verbose:
+            logger.info("Calling '{}'".format(command))
         subprocess.call([command], shell=True)
 
 
@@ -510,6 +532,11 @@ def create_or_update(cluster_config_file, min_workers, max_workers, no_restart,
     default=False,
     help="Only destroy the workers.")
 @click.option(
+    "--keep-min-workers",
+    is_flag=True,
+    default=False,
+    help="Retain the minimal amount of workers specified in the config.")
+@click.option(
     "--yes",
     "-y",
     is_flag=True,
@@ -521,9 +548,11 @@ def create_or_update(cluster_config_file, min_workers, max_workers, no_restart,
     required=False,
     type=str,
     help="Override the configured cluster name.")
-def teardown(cluster_config_file, yes, workers_only, cluster_name):
+def teardown(cluster_config_file, yes, workers_only, cluster_name,
+             keep_min_workers):
     """Tear down the Ray cluster."""
-    teardown_cluster(cluster_config_file, yes, workers_only, cluster_name)
+    teardown_cluster(cluster_config_file, yes, workers_only, cluster_name,
+                     keep_min_workers)
 
 
 @cli.command()
@@ -789,16 +818,22 @@ def microbenchmark():
 
 
 @cli.command()
+def clusterbenchmark():
+    from ray.ray_cluster_perf import main
+    main()
+
+
+@cli.command()
 @click.option(
-    "--redis-address",
+    "--address",
     required=False,
     type=str,
     help="Override the redis address to connect to.")
-def timeline(redis_address):
-    if not redis_address:
-        redis_address = services.find_redis_address_or_die()
-    logger.info("Connecting to Ray instance at {}.".format(redis_address))
-    ray.init(redis_address=redis_address)
+def timeline(address):
+    if not address:
+        address = services.find_redis_address_or_die()
+    logger.info("Connecting to Ray instance at {}.".format(address))
+    ray.init(address=address)
     time = datetime.today().strftime("%Y-%m-%d_%H-%M-%S")
     filename = "/tmp/ray-timeline-{}.json".format(time)
     ray.timeline(filename=filename)
@@ -806,6 +841,34 @@ def timeline(redis_address):
     logger.info("Trace file written to {} ({} bytes).".format(filename, size))
     logger.info(
         "You can open this with chrome://tracing in the Chrome browser.")
+
+
+@cli.command()
+@click.option(
+    "--address",
+    required=False,
+    type=str,
+    help="Override the address to connect to.")
+def stat(address):
+    if not address:
+        address = services.find_redis_address_or_die()
+    logger.info("Connecting to Ray instance at {}.".format(address))
+    ray.init(address=address)
+
+    import grpc
+    from ray.core.generated import node_manager_pb2
+    from ray.core.generated import node_manager_pb2_grpc
+
+    for raylet in ray.nodes():
+        raylet_address = "{}:{}".format(raylet["NodeManagerAddress"],
+                                        ray.nodes()[0]["NodeManagerPort"])
+        logger.info("Querying raylet {}".format(raylet_address))
+
+        channel = grpc.insecure_channel(raylet_address)
+        stub = node_manager_pb2_grpc.NodeManagerServiceStub(channel)
+        reply = stub.GetNodeStats(
+            node_manager_pb2.GetNodeStatsRequest(), timeout=2.0)
+        print(reply)
 
 
 cli.add_command(start)
@@ -823,6 +886,7 @@ cli.add_command(get_head_ip, name="get_head_ip")
 cli.add_command(get_worker_ips)
 cli.add_command(microbenchmark)
 cli.add_command(stack)
+cli.add_command(stat)
 cli.add_command(timeline)
 cli.add_command(project_cli)
 cli.add_command(session_cli)

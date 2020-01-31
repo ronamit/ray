@@ -1,8 +1,4 @@
 # coding: utf-8
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import unittest
 
@@ -14,7 +10,7 @@ from ray.tune.registry import _global_registry, TRAINABLE_CLASS
 from ray.tune.suggest import BasicVariantGenerator
 from ray.tune.trial import Trial, Checkpoint
 from ray.tune.resources import Resources
-from ray.tests.cluster_utils import Cluster
+from ray.cluster_utils import Cluster
 
 
 class RayTrialExecutorTest(unittest.TestCase):
@@ -38,7 +34,7 @@ class RayTrialExecutorTest(unittest.TestCase):
         trial = Trial("__fake")
         self.trial_executor.start_trial(trial)
         self.assertEqual(Trial.RUNNING, trial.status)
-        self.trial_executor.save(trial, Checkpoint.DISK)
+        self.trial_executor.save(trial, Checkpoint.PERSISTENT)
         self.trial_executor.restore(trial)
         self.trial_executor.stop_trial(trial)
         self.assertEqual(Trial.TERMINATED, trial.status)
@@ -55,6 +51,27 @@ class RayTrialExecutorTest(unittest.TestCase):
         self.trial_executor.stop_trial(trial)
         self.assertEqual(Trial.TERMINATED, trial.status)
 
+    def testSavePauseResumeRestore(self):
+        """Tests that pause checkpoint does not replace restore checkpoint."""
+        trial = Trial("__fake")
+        self.trial_executor.start_trial(trial)
+        # Save
+        checkpoint = self.trial_executor.save(trial, Checkpoint.PERSISTENT)
+        self.assertEqual(Trial.RUNNING, trial.status)
+        self.assertEqual(checkpoint.storage, Checkpoint.PERSISTENT)
+        # Pause
+        self.trial_executor.pause_trial(trial)
+        self.assertEqual(Trial.PAUSED, trial.status)
+        self.assertEqual(trial.checkpoint.storage, Checkpoint.MEMORY)
+        # Resume
+        self.trial_executor.start_trial(trial)
+        self.assertEqual(Trial.RUNNING, trial.status)
+        self.assertEqual(trial.checkpoint, checkpoint)
+        # Restore
+        self.trial_executor.restore(trial)
+        self.trial_executor.stop_trial(trial)
+        self.assertEqual(Trial.TERMINATED, trial.status)
+
     def testStartFailure(self):
         _global_registry.register(TRAINABLE_CLASS, "asdf", None)
         trial = Trial("asdf", resources=Resources(1, 0))
@@ -67,9 +84,9 @@ class RayTrialExecutorTest(unittest.TestCase):
         self.trial_executor.start_trial(trial)
         self.assertEqual(Trial.RUNNING, trial.status)
         self.trial_executor.fetch_result(trial)
-        self.trial_executor.pause_trial(trial)
+        checkpoint = self.trial_executor.pause_trial(trial)
         self.assertEqual(Trial.PAUSED, trial.status)
-        self.trial_executor.start_trial(trial)
+        self.trial_executor.start_trial(trial, checkpoint)
         self.assertEqual(Trial.RUNNING, trial.status)
         self.trial_executor.stop_trial(trial)
         self.assertEqual(Trial.TERMINATED, trial.status)
@@ -190,4 +207,6 @@ class LocalModeExecutorTest(RayTrialExecutorTest):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    import pytest
+    import sys
+    sys.exit(pytest.main(["-v", __file__]))

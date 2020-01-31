@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from ray.rllib.policy.dynamic_tf_policy import DynamicTFPolicy
 from ray.rllib.policy import eager_tf_policy
 from ray.rllib.policy.policy import Policy, LEARNER_STATS_KEY
@@ -100,7 +96,6 @@ def build_tf_policy(name,
     Returns:
         a DynamicTFPolicy instance that uses the specified args
     """
-
     original_kwargs = locals().copy()
     base = add_mixins(DynamicTFPolicy, mixins)
 
@@ -160,26 +155,26 @@ def build_tf_policy(name,
             if optimizer_fn:
                 return optimizer_fn(self, self.config)
             else:
-                return TFPolicy.optimizer(self)
+                return base.optimizer(self)
 
         @override(TFPolicy)
         def gradients(self, optimizer, loss):
             if gradients_fn:
                 return gradients_fn(self, optimizer, loss)
             else:
-                return TFPolicy.gradients(self, optimizer, loss)
+                return base.gradients(self, optimizer, loss)
 
         @override(TFPolicy)
         def build_apply_op(self, optimizer, grads_and_vars):
             if apply_gradients_fn:
                 return apply_gradients_fn(self, optimizer, grads_and_vars)
             else:
-                return TFPolicy.build_apply_op(self, optimizer, grads_and_vars)
+                return base.build_apply_op(self, optimizer, grads_and_vars)
 
         @override(TFPolicy)
         def extra_compute_action_fetches(self):
             return dict(
-                TFPolicy.extra_compute_action_fetches(self),
+                base.extra_compute_action_fetches(self),
                 **self._extra_action_fetches)
 
         @override(TFPolicy)
@@ -190,18 +185,16 @@ def build_tf_policy(name,
                     LEARNER_STATS_KEY: {}
                 }, **extra_learn_fetches_fn(self))
             else:
-                return TFPolicy.extra_compute_grad_fetches(self)
+                return base.extra_compute_grad_fetches(self)
 
-    @staticmethod
     def with_updates(**overrides):
         return build_tf_policy(**dict(original_kwargs, **overrides))
 
-    @staticmethod
     def as_eager():
         return eager_tf_policy.build_eager_tf_policy(**original_kwargs)
 
-    policy_cls.with_updates = with_updates
-    policy_cls.as_eager = as_eager
+    policy_cls.with_updates = staticmethod(with_updates)
+    policy_cls.as_eager = staticmethod(as_eager)
     policy_cls.__name__ = name
     policy_cls.__qualname__ = name
     return policy_cls

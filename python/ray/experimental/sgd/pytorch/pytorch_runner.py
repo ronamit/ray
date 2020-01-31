@@ -1,42 +1,59 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import collections
+from filelock import FileLock
 import logging
+import inspect
+import os
 import torch
 import torch.utils.data
+from torch.utils.data import Dataset
 
 import ray
-from ray.experimental.sgd.pytorch import pytorch_utils
+from ray.experimental.sgd.pytorch import utils as pytorch_utils
 from ray.experimental.sgd import utils
 
 logger = logging.getLogger(__name__)
 
 
-class PyTorchRunner(object):
+class PyTorchRunner:
     """Manages a PyTorch model for training."""
 
     def __init__(self,
                  model_creator,
                  data_creator,
                  optimizer_creator,
+                 loss_creator,
+                 train_function=None,
+                 validation_function=None,
                  config=None,
+                 dataloader_config=None,
                  batch_size=16):
         """Initializes the runner.
 
         Args:
-            model_creator (dict -> torch.nn.Module): see pytorch_trainer.py.
-            data_creator (dict -> Dataset, Dataset): see pytorch_trainer.py.
+            model_creator (dict -> torch.nn.Module): see pytorch_trainer.py
+            data_creator (int, dict -> Dataset, Dataset): see
+                pytorch_trainer.py.
             optimizer_creator (torch.nn.Module, dict -> loss, optimizer):
                 see pytorch_trainer.py.
+            loss_creator (dict -> loss | Loss class): see pytorch_trainer.py.
+            train_function: see pytorch_trainer.py
+            validation_function: see pytorch_trainer.py
             config (dict): see pytorch_trainer.py.
+            dataloader_config (dict): See pytorch_trainer.py.
             batch_size (int): see pytorch_trainer.py.
         """
-
         self.model_creator = model_creator
         self.data_creator = data_creator
         self.optimizer_creator = optimizer_creator
+        self.loss_creator = loss_creator
         self.config = {} if config is None else config
+        self.dataloader_config = {
+            "num_workers": 2,
+            "pin_memory": True
+        } if dataloader_config is None else dataloader_config
+        self.train_function = train_function or pytorch_utils.train
+        self.validation_function = (validation_function
+                                    or pytorch_utils.validate)
         self.batch_size = batch_size
         self.verbose = True
 
@@ -49,34 +66,62 @@ class PyTorchRunner(object):
             ]
         }
 
-    def setup(self):
-        """Initializes the model."""
-        logger.debug("Creating model")
-        self.model = self.model_creator(self.config)
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
+        self.models = None
+        self.optimizers = None
+        self.criterion = None
+        self.train_loader = None
+        self.validation_loader = None
 
-        logger.debug("Creating optimizer")
-        self.criterion, self.optimizer = self.optimizer_creator(
-            self.model, self.config)
+    def _validate_datasets(self, dataset):
+        assert dataset, "Datasets need to be returned in data_creator."
+        if issubclass(type(dataset), Dataset):
+            return dataset, None
+        elif len(dataset) == 2 and issubclass(type(dataset[0]), Dataset):
+            return dataset
+        else:
+            raise ValueError("Datasets must be <= 2. Got {}".format(dataset))
+
+    def _create_loss(self):
+        if inspect.isclass(self.loss_creator) and issubclass(
+                self.loss_creator, torch.nn.modules.loss._Loss):
+            self.criterion = self.loss_creator()
+        else:
+            self.criterion = self.loss_creator(self.config)
+
         if torch.cuda.is_available():
             self.criterion = self.criterion.cuda()
 
-        logger.debug("Creating dataset")
-        self.training_set, self.validation_set = self.data_creator(self.config)
-        self.train_loader = torch.utils.data.DataLoader(
-            self.training_set,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=False)
+    def setup(self):
+        """Initializes the model."""
+        logger.debug("Creating model")
+        self.models = self.model_creator(self.config)
+        if not isinstance(self.models, collections.Iterable):
+            self.models = [self.models]
+        if torch.cuda.is_available():
+            self.models = [model.cuda() for model in self.models]
 
-        self.validation_loader = torch.utils.data.DataLoader(
-            self.validation_set,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=False)
+        logger.debug("Creating optimizer")
+        self.optimizers = self.optimizer_creator(self.given_models,
+                                                 self.config)
+        if not isinstance(self.optimizers, collections.Iterable):
+            self.optimizers = [self.optimizers]
+
+        self._create_loss()
+
+        logger.debug("Creating dataset")
+        # When creating datasets, a filelock will be used to ensure no
+        # race conditions in data downloading among different workers.
+        with FileLock(os.path.expanduser("~/.ray_data.lock")):
+            datasets = self.data_creator(self.config)
+            train_set, val_set = self._validate_datasets(datasets)
+
+        self.train_loader = torch.utils.data.DataLoader(
+            train_set, batch_size=self.batch_size, **self.dataloader_config)
+
+        self.validation_loader = None
+        if val_set:
+            self.validation_loader = torch.utils.data.DataLoader(
+                val_set, batch_size=self.batch_size, **self.dataloader_config)
 
     def get_node_ip(self):
         """Returns the IP address of the current node."""
@@ -90,8 +135,9 @@ class PyTorchRunner(object):
         """Runs a training epoch and updates the model parameters."""
         logger.debug("Begin Training Epoch {}".format(self.epoch + 1))
         with self._timers["training"]:
-            train_stats = pytorch_utils.train(self.train_loader, self.model,
-                                              self.criterion, self.optimizer)
+            train_stats = self.train_function(
+                self.given_models, self.train_loader, self.criterion,
+                self.given_optimizers, self.config)
             train_stats["epoch"] = self.epoch
 
         self.epoch += 1
@@ -101,9 +147,12 @@ class PyTorchRunner(object):
 
     def validate(self):
         """Evaluates the model on the validation data set."""
+        if self.validation_loader is None:
+            raise ValueError("No validation dataloader provided.")
         with self._timers["validation"]:
-            validation_stats = pytorch_utils.validate(
-                self.validation_loader, self.model, self.criterion)
+            validation_stats = self.validation_function(
+                self.given_models, self.validation_loader, self.criterion,
+                self.config)
 
         validation_stats.update(self.stats())
         return validation_stats
@@ -119,28 +168,54 @@ class PyTorchRunner(object):
 
     def get_state(self):
         """Returns the state of the runner."""
+        # This is so that we create a duplicate of weights into CPU rather than
+        # move the model weights entirely out of the GPU, so that we can
+        # resume training while saving intermediate checkpoints.
+        cpu_state_dicts = []
+        for model in self.models:
+            state_dict = model.state_dict()
+            for k, v in state_dict.items():
+                state_dict[k] = v.cpu()
+            cpu_state_dicts += [state_dict]
         return {
             "epoch": self.epoch,
-            "model": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
+            "models": cpu_state_dicts,
+            "optimizers": [opt.state_dict() for opt in self.optimizers],
             "stats": self.stats()
         }
 
     def set_state(self, state):
         """Sets the state of the model."""
         # TODO: restore timer stats
-        self.model.load_state_dict(state["model"])
-        self.optimizer.load_state_dict(state["optimizer"])
+        for model, state_dict in zip(self.models, state["models"]):
+            model.load_state_dict(state_dict)
+        for optimizer, state_dict in zip(self.optimizers, state["optimizers"]):
+            optimizer.load_state_dict(state_dict)
         self.epoch = state["stats"]["epoch"]
+
+    def apply_fn(self, fn):
+        return fn(self)
 
     def shutdown(self):
         """Attempts to shut down the worker."""
         del self.validation_loader
-        del self.validation_set
         del self.train_loader
-        del self.training_set
         del self.criterion
-        del self.optimizer
-        del self.model
+        del self.optimizers
+        del self.models
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    @property
+    def given_optimizers(self):
+        if len(self.optimizers) > 1:
+            return self.optimizers
+        else:
+            return self.optimizers[0]
+
+    @property
+    def given_models(self):
+        if len(self.models) > 1:
+            return self.models
+        else:
+            return self.models[0]

@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from collections import OrderedDict
 import cv2
 import logging
@@ -18,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 @PublicAPI
-class Preprocessor(object):
+class Preprocessor:
     """Defines an abstract observation preprocessor function.
 
     Attributes:
@@ -239,7 +235,7 @@ class DictFlatteningPreprocessor(Preprocessor):
     @override(Preprocessor)
     def write(self, observation, array, offset):
         if not isinstance(observation, OrderedDict):
-            observation = OrderedDict(sorted(list(observation.items())))
+            observation = OrderedDict(sorted(observation.items()))
         assert len(observation) == len(self.preprocessors), \
             (len(observation), len(self.preprocessors))
         for o, p in zip(observation.values(), self.preprocessors):

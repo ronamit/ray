@@ -1,9 +1,5 @@
 #!/usr/bin/env python
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import numpy as np
 import argparse
 import random
@@ -81,6 +77,7 @@ class PBTBenchmarkExample(Trainable):
 
     def reset_config(self, new_config):
         self.lr = new_config["lr"]
+        self.config = new_config
         return True
 
 

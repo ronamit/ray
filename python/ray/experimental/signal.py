@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 
 from collections import defaultdict
@@ -18,7 +14,7 @@ ACTOR_DIED_STR = "ACTOR_DIED_SIGNAL"
 logger = logging.getLogger(__name__)
 
 
-class Signal(object):
+class Signal:
     """Base class for Ray signals."""
     pass
 
@@ -139,7 +135,7 @@ def receive(sources, timeout=None):
     # redis expects ms.
     query += str(timeout_ms)
     query += " STREAMS "
-    query += " ".join([task_id for task_id in task_id_to_sources])
+    query += " ".join(task_id_to_sources)
     query += " "
     query += " ".join([
         ray.utils.decode(signal_counters[ray.utils.hex_to_binary(task_id)])

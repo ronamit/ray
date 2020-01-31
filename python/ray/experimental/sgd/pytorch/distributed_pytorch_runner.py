@@ -1,11 +1,11 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import collections
+from filelock import FileLock
 import logging
 import os
+import torch.nn as nn
 import torch.distributed as dist
 import torch.utils.data
+from torch.nn.parallel import DistributedDataParallel
 
 from ray.experimental.sgd.pytorch.pytorch_runner import PyTorchRunner
 
@@ -15,27 +15,15 @@ logger = logging.getLogger(__name__)
 class DistributedPyTorchRunner(PyTorchRunner):
     """Manages a distributed PyTorch model replica."""
 
-    def __init__(self,
-                 model_creator,
-                 data_creator,
-                 optimizer_creator,
-                 config=None,
-                 batch_size=16,
-                 backend="gloo"):
+    def __init__(self, *args, backend="gloo", **kwargs):
         """Initializes the runner.
 
         Args:
-            model_creator (dict -> torch.nn.Module): see pytorch_trainer.py.
-            data_creator (dict -> Dataset, Dataset):  see pytorch_trainer.py.
-            optimizer_creator (torch.nn.Module, dict -> loss, optimizer):
-                see pytorch_trainer.py.
-            config (dict):  see pytorch_trainer.py.
-            batch_size (int): batch size used by one replica for an update.
-            backend (string):  see pytorch_trainer.py.
+            args: Arguments for the PyTorchRunner.
+            kwargs: Keyword arguments for the PyTorchRunner.
+            backend (string): backend used by distributed PyTorch.
         """
-
-        super(DistributedPyTorchRunner, self).__init__(
-            model_creator, data_creator, optimizer_creator, config, batch_size)
+        super(DistributedPyTorchRunner, self).__init__(*args, **kwargs)
         self.backend = backend
 
     def setup(self, url, world_rank, world_size):
@@ -50,7 +38,6 @@ class DistributedPyTorchRunner(PyTorchRunner):
         self._setup_training()
 
     def _setup_distributed_pytorch(self, url, world_rank, world_size):
-        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
         with self._timers["setup_proc"]:
             self.world_rank = world_rank
             logger.debug(
@@ -65,68 +52,86 @@ class DistributedPyTorchRunner(PyTorchRunner):
 
     def _setup_training(self):
         logger.debug("Creating model")
-        self.model = self.model_creator(self.config)
+        self.models = self.model_creator(self.config)
+        if not isinstance(self.models, collections.Iterable):
+            self.models = [self.models]
+        assert all(isinstance(model, nn.Module) for model in self.models), (
+            "All models must be PyTorch models: {}.".format(self.models))
         if torch.cuda.is_available():
-            self.model = torch.nn.parallel.DistributedDataParallel(
-                self.model.cuda())
-        else:
-            self.model = torch.nn.parallel.DistributedDataParallelCPU(
-                self.model)
+            self.models = [model.cuda() for model in self.models]
+        self.models = [DistributedDataParallel(model) for model in self.models]
 
-        logger.debug("Creating optimizer")
-        self.criterion, self.optimizer = self.optimizer_creator(
-            self.model, self.config)
-        if torch.cuda.is_available():
-            self.criterion = self.criterion.cuda()
+        logger.debug("Creating optimizer.")
+        self.optimizers = self.optimizer_creator(self.given_models,
+                                                 self.config)
+        if not isinstance(self.optimizers, collections.Iterable):
+            self.optimizers = [self.optimizers]
 
-        logger.debug("Creating dataset")
-        self.training_set, self.validation_set = self.data_creator(self.config)
+        logger.debug("Creating loss.")
+        self._create_loss()
 
-        # TODO: make num_workers configurable
-        self.train_sampler = torch.utils.data.distributed.DistributedSampler(
-            self.training_set)
+        logger.debug("Creating dataset.")
+        with FileLock(os.path.expanduser("~/.ray_data.lock")):
+            datasets = self.data_creator(self.config)
+            train_set, val_set = self._validate_datasets(datasets)
+
+        train_loader_config = self.dataloader_config.copy()
+        train_loader_config.update(
+            sampler=torch.utils.data.distributed.DistributedSampler(train_set),
+            shuffle=False)
+
         self.train_loader = torch.utils.data.DataLoader(
-            self.training_set,
-            batch_size=self.batch_size,
-            shuffle=(self.train_sampler is None),
-            num_workers=2,
-            pin_memory=False,
-            sampler=self.train_sampler)
+            train_set, batch_size=self.batch_size, **train_loader_config)
 
-        self.validation_sampler = (
-            torch.utils.data.distributed.DistributedSampler(
-                self.validation_set))
-        self.validation_loader = torch.utils.data.DataLoader(
-            self.validation_set,
-            batch_size=self.batch_size,
-            shuffle=(self.validation_sampler is None),
-            num_workers=2,
-            pin_memory=False,
-            sampler=self.validation_sampler)
+        self.validation_loader = None
+        if val_set:
+            self.validation_loader = torch.utils.data.DataLoader(
+                val_set, batch_size=self.batch_size, **self.dataloader_config)
 
     def step(self):
-        """Runs a training epoch and updates the model parameters."""
+        """Runs a training epoch and updates the model parameters.
+
+        Automatically sets epoch of sampler if possible.
+        """
         logger.debug("Starting step")
-        self.train_sampler.set_epoch(self.epoch)
+        if hasattr(self.train_loader.sampler, "set_epoch"):
+            self.train_loader.sampler.set_epoch(self.epoch)
         return super(DistributedPyTorchRunner, self).step()
 
     def get_state(self):
         """Returns the state of the runner."""
+        # This is so that we create a duplicate of weights into CPU rather than
+        # move the model weights entirely out of the GPU, so that we can
+        # resume training while saving intermediate checkpoints.
+        cpu_state_dicts = []
+        for model in self.models:
+            state_dict = model.module.state_dict()
+            for k, v in state_dict.items():
+                state_dict[k] = v.cpu()
+            cpu_state_dicts += [state_dict]
         return {
             "epoch": self.epoch,
-            "model": self.model.module.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
+            "models": cpu_state_dicts,
+            "optimizers": [opt.state_dict() for opt in self.optimizers],
             "stats": self.stats()
         }
 
     def set_state(self, state):
         """Sets the state of the model."""
         # TODO: restore timer stats
-        self.model.module.load_state_dict(state["model"])
-        self.optimizer.load_state_dict(state["optimizer"])
+        for model, model_state_dict in zip(self.models, state["models"]):
+            model.module.load_state_dict(model_state_dict)
+        for optimizer, opt_state_dict in zip(self.optimizers,
+                                             state["optimizers"]):
+            optimizer.load_state_dict(opt_state_dict)
         self.epoch = state["stats"]["epoch"]
 
     def shutdown(self):
         """Attempts to shut down the worker."""
         super(DistributedPyTorchRunner, self).shutdown()
-        dist.destroy_process_group()
+        # TODO: Temporarily removing since it causes hangs on MacOSX.
+        # However, it seems to be harmless to remove permanently
+        # since the processes are shutdown anyways. This comment can be
+        # removed in a future release if it is still not documented
+        # the stable Pytorch docs.
+        # dist.destroy_process_group()

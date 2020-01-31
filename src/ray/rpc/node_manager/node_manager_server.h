@@ -3,37 +3,53 @@
 
 #include "ray/rpc/grpc_server.h"
 #include "ray/rpc/server_call.h"
-
 #include "src/ray/protobuf/node_manager.grpc.pb.h"
 #include "src/ray/protobuf/node_manager.pb.h"
 
 namespace ray {
 namespace rpc {
 
+/// NOTE: See src/ray/core_worker/core_worker.h on how to add a new grpc handler.
+#define RAY_NODE_MANAGER_RPC_HANDLERS                              \
+  RPC_SERVICE_HANDLER(NodeManagerService, RequestWorkerLease, 100) \
+  RPC_SERVICE_HANDLER(NodeManagerService, ReturnWorker, 100)       \
+  RPC_SERVICE_HANDLER(NodeManagerService, ForwardTask, 100)        \
+  RPC_SERVICE_HANDLER(NodeManagerService, PinObjectIDs, 100)       \
+  RPC_SERVICE_HANDLER(NodeManagerService, GetNodeStats, 1)
+
 /// Interface of the `NodeManagerService`, see `src/ray/protobuf/node_manager.proto`.
 class NodeManagerServiceHandler {
  public:
-  /// Handle a `ForwardTask` request.
-  /// The implementation can handle this request asynchronously. When handling is done,
-  /// the `send_reply_callback` should be called.
+  /// Handlers. For all of the following handlers, the implementations can
+  /// handle the request asynchronously. When handling is done, the
+  /// `send_reply_callback` should be called. See
+  /// src/ray/rpc/node_manager/node_manager_client.h and
+  /// src/ray/protobuf/node_manager.proto for a description of the
+  /// functionality of each handler.
   ///
   /// \param[in] request The request message.
   /// \param[out] reply The reply message.
   /// \param[in] send_reply_callback The callback to be called when the request is done.
+
+  virtual void HandleRequestWorkerLease(const RequestWorkerLeaseRequest &request,
+                                        RequestWorkerLeaseReply *reply,
+                                        SendReplyCallback send_reply_callback) = 0;
+
+  virtual void HandleReturnWorker(const ReturnWorkerRequest &request,
+                                  ReturnWorkerReply *reply,
+                                  SendReplyCallback send_reply_callback) = 0;
+
   virtual void HandleForwardTask(const ForwardTaskRequest &request,
                                  ForwardTaskReply *reply,
                                  SendReplyCallback send_reply_callback) = 0;
 
-  /// Handle a `GetNodeStats` request.
-  /// The implementation can handle this request asynchronously. When handling is done,
-  /// the `send_reply_callback` should be called.
-  ///
-  /// \param[in] request The request message.
-  /// \param[out] reply The reply message.
-  /// \param[in] send_reply_callback The callback to be called when the request is done.
-  virtual void HandleNodeStatsRequest(const NodeStatsRequest &request,
-                                      NodeStatsReply *reply,
-                                      SendReplyCallback send_reply_callback) = 0;
+  virtual void HandlePinObjectIDs(const PinObjectIDsRequest &request,
+                                  PinObjectIDsReply *reply,
+                                  SendReplyCallback send_reply_callback) = 0;
+
+  virtual void HandleGetNodeStats(const GetNodeStatsRequest &request,
+                                  GetNodeStatsReply *reply,
+                                  SendReplyCallback send_reply_callback) = 0;
 };
 
 /// The `GrpcService` for `NodeManagerService`.
@@ -54,26 +70,7 @@ class NodeManagerGrpcService : public GrpcService {
       const std::unique_ptr<grpc::ServerCompletionQueue> &cq,
       std::vector<std::pair<std::unique_ptr<ServerCallFactory>, int>>
           *server_call_factories_and_concurrencies) override {
-    // Initialize the factory for requests.
-    std::unique_ptr<ServerCallFactory> forward_task_call_factory(
-        new ServerCallFactoryImpl<NodeManagerService, NodeManagerServiceHandler,
-                                  ForwardTaskRequest, ForwardTaskReply>(
-            service_, &NodeManagerService::AsyncService::RequestForwardTask,
-            service_handler_, &NodeManagerServiceHandler::HandleForwardTask, cq,
-            main_service_));
-
-    std::unique_ptr<ServerCallFactory> node_stats_call_factory(
-        new ServerCallFactoryImpl<NodeManagerService, NodeManagerServiceHandler,
-                                  NodeStatsRequest, NodeStatsReply>(
-            service_, &NodeManagerService::AsyncService::RequestGetNodeStats,
-            service_handler_, &NodeManagerServiceHandler::HandleNodeStatsRequest, cq,
-            main_service_));
-
-    // Set accept concurrency.
-    server_call_factories_and_concurrencies->emplace_back(
-        std::move(forward_task_call_factory), 100);
-    server_call_factories_and_concurrencies->emplace_back(
-        std::move(node_stats_call_factory), 1);
+    RAY_NODE_MANAGER_RPC_HANDLERS
   }
 
  private:

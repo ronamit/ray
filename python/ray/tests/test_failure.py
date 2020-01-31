@@ -1,26 +1,26 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
+import logging
 import os
-import pytest
 import sys
 import tempfile
 import threading
 import time
 
 import numpy as np
+import pytest
 import redis
 
 import ray
 import ray.ray_constants as ray_constants
-from ray.tests.cluster_utils import Cluster
-from ray.tests.utils import (
+from ray.cluster_utils import Cluster
+from ray.test_utils import (
     relevant_errors,
+    wait_for_condition,
     wait_for_errors,
     RayTestTimeoutException,
 )
+
+RAY_FORCE_DIRECT = ray_constants.direct_call_enabled()
 
 
 def test_failed_task(ray_start_regular):
@@ -101,7 +101,7 @@ def temporary_helper_function():
     # Define a function that closes over this temporary module. This should
     # fail when it is unpickled.
     @ray.remote
-    def g():
+    def g(x, y=3):
         try:
             module.temporary_python_file()
         except Exception:
@@ -110,19 +110,20 @@ def temporary_helper_function():
             pass
 
     # Invoke the function so that the definition is exported.
-    g.remote()
+    g.remote(1, y=2)
 
     wait_for_errors(ray_constants.REGISTER_REMOTE_FUNCTION_PUSH_ERROR, 2)
     errors = relevant_errors(ray_constants.REGISTER_REMOTE_FUNCTION_PUSH_ERROR)
-    assert len(errors) == 2
+    assert len(errors) >= 2, errors
     assert "No module named" in errors[0]["message"]
     assert "No module named" in errors[1]["message"]
 
     # Check that if we try to call the function it throws an exception and
     # does not hang.
     for _ in range(10):
-        with pytest.raises(Exception):
-            ray.get(g.remote())
+        with pytest.raises(
+                Exception, match="This function was not imported properly."):
+            ray.get(g.remote(1, y=2))
 
     f.close()
 
@@ -163,18 +164,18 @@ def temporary_helper_function():
     # Define an actor that closes over this temporary module. This should
     # fail when it is unpickled.
     @ray.remote
-    class Foo(object):
-        def __init__(self):
+    class Foo:
+        def __init__(self, arg1, arg2=3):
             self.x = module.temporary_python_file()
 
-        def get_val(self):
+        def get_val(self, arg1, arg2=3):
             return 1
 
     # There should be no errors yet.
     assert len(ray.errors()) == 0
 
     # Create an actor.
-    foo = Foo.remote()
+    foo = Foo.remote(3, arg2=0)
 
     # Wait for the error to arrive.
     wait_for_errors(ray_constants.REGISTER_ACTOR_PUSH_ERROR, 1)
@@ -189,8 +190,8 @@ def temporary_helper_function():
 
     # Check that if we try to get the function it throws an exception and
     # does not hang.
-    with pytest.raises(Exception):
-        ray.get(foo.get_val.remote())
+    with pytest.raises(Exception, match="failed to be imported"):
+        ray.get(foo.get_val.remote(1, arg2=2))
 
     # Wait for the error from when the call to get_val.
     wait_for_errors(ray_constants.TASK_PUSH_ERROR, 2)
@@ -209,7 +210,7 @@ def test_failed_actor_init(ray_start_regular):
     error_message2 = "actor method failed"
 
     @ray.remote
-    class FailedActor(object):
+    class FailedActor:
         def __init__(self):
             raise Exception(error_message1)
 
@@ -236,7 +237,7 @@ def test_failed_actor_method(ray_start_regular):
     error_message2 = "actor method failed"
 
     @ray.remote
-    class FailedActor(object):
+    class FailedActor:
         def __init__(self):
             pass
 
@@ -255,7 +256,7 @@ def test_failed_actor_method(ray_start_regular):
 
 def test_incorrect_method_calls(ray_start_regular):
     @ray.remote
-    class Actor(object):
+    class Actor:
         def __init__(self, missing_variable_name):
             pass
 
@@ -301,12 +302,11 @@ def test_worker_raising_exception(ray_start_regular):
     f.remote()
 
     wait_for_errors(ray_constants.WORKER_CRASH_PUSH_ERROR, 1)
-    wait_for_errors(ray_constants.WORKER_DIED_PUSH_ERROR, 1)
 
 
 def test_worker_dying(ray_start_regular):
     # Define a remote function that will kill the worker that runs it.
-    @ray.remote
+    @ray.remote(max_retries=0)
     def f():
         eval("exit()")
 
@@ -322,7 +322,7 @@ def test_worker_dying(ray_start_regular):
 
 def test_actor_worker_dying(ray_start_regular):
     @ray.remote
-    class Actor(object):
+    class Actor:
         def kill(self):
             eval("exit()")
 
@@ -340,8 +340,8 @@ def test_actor_worker_dying(ray_start_regular):
 
 
 def test_actor_worker_dying_future_tasks(ray_start_regular):
-    @ray.remote
-    class Actor(object):
+    @ray.remote(max_reconstructions=0)
+    class Actor:
         def getpid(self):
             return os.getpid()
 
@@ -362,8 +362,8 @@ def test_actor_worker_dying_future_tasks(ray_start_regular):
 
 
 def test_actor_worker_dying_nothing_in_progress(ray_start_regular):
-    @ray.remote
-    class Actor(object):
+    @ray.remote(max_reconstructions=0)
+    class Actor:
         def getpid(self):
             return os.getpid()
 
@@ -378,7 +378,7 @@ def test_actor_worker_dying_nothing_in_progress(ray_start_regular):
 
 def test_actor_scope_or_intentionally_killed_message(ray_start_regular):
     @ray.remote
-    class Actor(object):
+    class Actor:
         pass
 
     a = Actor.remote()
@@ -490,13 +490,17 @@ def test_version_mismatch(shutdown_only):
     ray.__version__ = ray_version
 
 
-def test_warning_monitor_died(shutdown_only):
-    ray.init(num_cpus=0)
+def test_warning_monitor_died(ray_start_2_cpus):
+    @ray.remote
+    def f():
+        pass
 
-    time.sleep(1)  # Make sure the monitor has started.
+    # Wait for the monitor process to start.
+    ray.get(f.remote())
+    time.sleep(1)
 
     # Cause the monitor to raise an exception by pushing a malformed message to
-    # Redis. This will probably kill the raylets and the raylet_monitor in
+    # Redis. This will probably kill the raylet and the raylet_monitor in
     # addition to the monitor.
     fake_id = 20 * b"\x00"
     malformed_message = "asdf"
@@ -525,7 +529,7 @@ def test_export_large_objects(ray_start_regular):
     wait_for_errors(ray_constants.PICKLING_LARGE_OBJECT_PUSH_ERROR, 1)
 
     @ray.remote
-    class Foo(object):
+    class Foo:
         def __init__(self):
             large_object
 
@@ -535,12 +539,13 @@ def test_export_large_objects(ray_start_regular):
     wait_for_errors(ray_constants.PICKLING_LARGE_OBJECT_PUSH_ERROR, 2)
 
 
+@pytest.mark.skipif(RAY_FORCE_DIRECT, reason="TODO detect resource deadlock")
 def test_warning_for_resource_deadlock(shutdown_only):
     # Check that we get warning messages for infeasible tasks.
     ray.init(num_cpus=1)
 
     @ray.remote(num_cpus=1)
-    class Foo(object):
+    class Foo:
         def f(self):
             return 0
 
@@ -564,7 +569,7 @@ def test_warning_for_infeasible_tasks(ray_start_regular):
         pass
 
     @ray.remote(resources={"Custom": 1})
-    class Foo(object):
+    class Foo:
         pass
 
     # This task is infeasible.
@@ -584,7 +589,7 @@ def test_warning_for_infeasible_zero_cpu_actor(shutdown_only):
     ray.init(num_cpus=0)
 
     @ray.remote
-    class Foo(object):
+    class Foo:
         pass
 
     # The actor creation should be infeasible.
@@ -599,7 +604,7 @@ def test_warning_for_too_many_actors(shutdown_only):
     ray.init(num_cpus=num_cpus)
 
     @ray.remote
-    class Foo(object):
+    class Foo:
         def __init__(self):
             time.sleep(1000)
 
@@ -636,6 +641,81 @@ def test_warning_for_too_many_nested_tasks(shutdown_only):
     wait_for_errors(ray_constants.WORKER_POOL_LARGE_ERROR, 1)
 
 
+def test_warning_for_many_duplicate_remote_functions_and_actors(shutdown_only):
+    ray.init(num_cpus=1)
+
+    @ray.remote
+    def create_remote_function():
+        @ray.remote
+        def g():
+            return 1
+
+        return ray.get(g.remote())
+
+    for _ in range(ray_constants.DUPLICATE_REMOTE_FUNCTION_THRESHOLD - 1):
+        ray.get(create_remote_function.remote())
+
+    import io
+    log_capture_string = io.StringIO()
+    ch = logging.StreamHandler(log_capture_string)
+
+    # TODO(rkn): It's terrible to have to rely on this implementation detail,
+    # the fact that the warning comes from ray.import_thread.logger. However,
+    # I didn't find a good way to capture the output for all loggers
+    # simultaneously.
+    ray.import_thread.logger.addHandler(ch)
+
+    ray.get(create_remote_function.remote())
+
+    start_time = time.time()
+    while time.time() < start_time + 10:
+        log_contents = log_capture_string.getvalue()
+        if len(log_contents) > 0:
+            break
+
+    ray.import_thread.logger.removeHandler(ch)
+
+    assert "remote function" in log_contents
+    assert "has been exported {} times.".format(
+        ray_constants.DUPLICATE_REMOTE_FUNCTION_THRESHOLD) in log_contents
+
+    # Now test the same thing but for actors.
+
+    @ray.remote
+    def create_actor_class():
+        # Require a GPU so that the actor is never actually created and we
+        # don't spawn an unreasonable number of processes.
+        @ray.remote(num_gpus=1)
+        class Foo:
+            pass
+
+        Foo.remote()
+
+    for _ in range(ray_constants.DUPLICATE_REMOTE_FUNCTION_THRESHOLD - 1):
+        ray.get(create_actor_class.remote())
+
+    log_capture_string = io.StringIO()
+    ch = logging.StreamHandler(log_capture_string)
+
+    # TODO(rkn): As mentioned above, it's terrible to have to rely on this
+    # implementation detail.
+    ray.import_thread.logger.addHandler(ch)
+
+    ray.get(create_actor_class.remote())
+
+    start_time = time.time()
+    while time.time() < start_time + 10:
+        log_contents = log_capture_string.getvalue()
+        if len(log_contents) > 0:
+            break
+
+    ray.import_thread.logger.removeHandler(ch)
+
+    assert "actor" in log_contents
+    assert "has been exported {} times.".format(
+        ray_constants.DUPLICATE_REMOTE_FUNCTION_THRESHOLD) in log_contents
+
+
 def test_redis_module_failure(ray_start_regular):
     address_info = ray_start_regular
     address = address_info["redis_address"]
@@ -645,11 +725,17 @@ def test_redis_module_failure(ray_start_regular):
     def run_failure_test(expecting_message, *command):
         with pytest.raises(
                 Exception, match=".*{}.*".format(expecting_message)):
-            client = redis.StrictRedis(host=address[0], port=int(address[1]))
+            client = redis.StrictRedis(
+                host=address[0],
+                port=int(address[1]),
+                password=ray_constants.REDIS_DEFAULT_PASSWORD)
             client.execute_command(*command)
 
     def run_one_command(*command):
-        client = redis.StrictRedis(host=address[0], port=int(address[1]))
+        client = redis.StrictRedis(
+            host=address[0],
+            port=int(address[1]),
+            password=ray_constants.REDIS_DEFAULT_PASSWORD)
         client.execute_command(*command)
 
     run_failure_test("wrong number of arguments", "RAY.TABLE_ADD", 13)
@@ -761,7 +847,7 @@ def test_connect_with_disconnected_node(shutdown_only):
 @pytest.mark.parametrize("num_actors", [1, 2, 5])
 def test_parallel_actor_fill_plasma_retry(ray_start_cluster_head, num_actors):
     @ray.remote
-    class LargeMemoryActor(object):
+    class LargeMemoryActor:
         def some_expensive_task(self):
             return np.zeros(10**8 // 2, dtype=np.uint8)
 
@@ -780,7 +866,7 @@ def test_parallel_actor_fill_plasma_retry(ray_start_cluster_head, num_actors):
     indirect=True)
 def test_fill_object_store_exception(ray_start_cluster_head):
     @ray.remote
-    class LargeMemoryActor(object):
+    class LargeMemoryActor:
         def some_expensive_task(self):
             return np.zeros(10**8 + 2, dtype=np.uint8)
 
@@ -795,3 +881,195 @@ def test_fill_object_store_exception(ray_start_cluster_head):
 
     with pytest.raises(ray.exceptions.ObjectStoreFullError):
         ray.put(np.zeros(10**8 + 2, dtype=np.uint8))
+
+
+@pytest.mark.parametrize(
+    "ray_start_cluster", [{
+        "num_nodes": 1,
+        "num_cpus": 2,
+    }, {
+        "num_nodes": 2,
+        "num_cpus": 1,
+    }],
+    indirect=True)
+def test_direct_call_eviction(ray_start_cluster):
+    @ray.remote
+    def large_object():
+        return np.zeros(10 * 1024 * 1024)
+
+    obj = large_object.remote()
+    assert (isinstance(ray.get(obj), np.ndarray))
+    # Evict the object.
+    ray.internal.free([obj])
+    while ray.worker.global_worker.core_worker.object_exists(obj):
+        time.sleep(1)
+    # ray.get throws an exception.
+    with pytest.raises(ray.exceptions.UnreconstructableError):
+        ray.get(obj)
+
+    @ray.remote
+    def dependent_task(x):
+        return
+
+    # If the object is passed by reference, the task throws an
+    # exception.
+    with pytest.raises(ray.exceptions.RayTaskError):
+        ray.get(dependent_task.remote(obj))
+
+
+@pytest.mark.parametrize(
+    "ray_start_cluster", [{
+        "num_nodes": 1,
+        "num_cpus": 2,
+    }, {
+        "num_nodes": 2,
+        "num_cpus": 1,
+    }],
+    indirect=True)
+def test_direct_call_serialized_id_eviction(ray_start_cluster):
+    @ray.remote
+    def large_object():
+        return np.zeros(10 * 1024 * 1024)
+
+    @ray.remote
+    def get(obj_ids):
+        obj_id = obj_ids[0]
+        assert (isinstance(ray.get(obj_id), np.ndarray))
+        # Wait for the object to be evicted.
+        ray.internal.free(obj_id)
+        while ray.worker.global_worker.core_worker.object_exists(obj_id):
+            time.sleep(1)
+        with pytest.raises(ray.exceptions.UnreconstructableError):
+            ray.get(obj_id)
+        print("get done", obj_ids)
+
+    obj = large_object.remote()
+    result = get.remote([obj])
+    ray.internal.free(obj)
+    ray.get(result)
+
+
+@pytest.mark.parametrize(
+    "ray_start_cluster", [{
+        "num_nodes": 2,
+        "num_cpus": 1,
+    }, {
+        "num_nodes": 1,
+        "num_cpus": 2,
+    }],
+    indirect=True)
+def test_serialized_id(ray_start_cluster):
+    @ray.remote
+    def small_object():
+        # Sleep a bit before creating the object to force a timeout
+        # at the getter.
+        time.sleep(1)
+        return 1
+
+    @ray.remote
+    def dependent_task(x):
+        return x
+
+    @ray.remote
+    def get(obj_ids, test_dependent_task):
+        print("get", obj_ids)
+        obj_id = obj_ids[0]
+        if test_dependent_task:
+            assert ray.get(dependent_task.remote(obj_id)) == 1
+        else:
+            assert ray.get(obj_id) == 1
+
+    obj = small_object.remote()
+    ray.get(get.remote([obj], False))
+
+    obj = small_object.remote()
+    ray.get(get.remote([obj], True))
+
+    obj = ray.put(1)
+    ray.get(get.remote([obj], False))
+
+    obj = ray.put(1)
+    ray.get(get.remote([obj], True))
+
+
+def test_fate_sharing(ray_start_cluster):
+    config = json.dumps({
+        "num_heartbeats_timeout": 10,
+        "raylet_heartbeat_timeout_milliseconds": 100,
+    })
+    cluster = Cluster()
+    # Head node with no resources.
+    cluster.add_node(num_cpus=0, _internal_config=config)
+    # Node to place the parent actor.
+    node_to_kill = cluster.add_node(num_cpus=1, resources={"parent": 1})
+    # Node to place the child actor.
+    cluster.add_node(num_cpus=1, resources={"child": 1})
+    cluster.wait_for_nodes()
+    ray.init(address=cluster.address)
+
+    @ray.remote
+    def sleep():
+        time.sleep(1000)
+
+    @ray.remote(resources={"child": 1})
+    def probe():
+        return
+
+    @ray.remote
+    class Actor(object):
+        def __init__(self):
+            return
+
+        def start_child(self, use_actors):
+            if use_actors:
+                child = Actor.options(resources={"child": 1}).remote()
+                ray.get(child.sleep.remote())
+            else:
+                ray.get(sleep.options(resources={"child": 1}).remote())
+
+        def sleep(self):
+            time.sleep(1000)
+
+        def get_pid(self):
+            return os.getpid()
+
+    # Returns whether the "child" resource is available.
+    def child_resource_available():
+        p = probe.remote()
+        ready, _ = ray.wait([p], timeout=1)
+        return len(ready) > 0
+
+    # Test fate sharing if the parent process dies.
+    def test_process_failure(use_actors):
+        a = Actor.options(resources={"parent": 1}).remote()
+        pid = ray.get(a.get_pid.remote())
+        a.start_child.remote(use_actors=use_actors)
+        # Wait for the child to be scheduled.
+        assert wait_for_condition(
+            lambda: not child_resource_available(), timeout_ms=10000)
+        # Kill the parent process.
+        os.kill(pid, 9)
+        assert wait_for_condition(child_resource_available, timeout_ms=10000)
+
+    # Test fate sharing if the parent node dies.
+    def test_node_failure(node_to_kill, use_actors):
+        a = Actor.options(resources={"parent": 1}).remote()
+        a.start_child.remote(use_actors=use_actors)
+        # Wait for the child to be scheduled.
+        assert wait_for_condition(
+            lambda: not child_resource_available(), timeout_ms=10000)
+        # Kill the parent process.
+        cluster.remove_node(node_to_kill, allow_graceful=False)
+        node_to_kill = cluster.add_node(num_cpus=1, resources={"parent": 1})
+        assert wait_for_condition(child_resource_available, timeout_ms=10000)
+        return node_to_kill
+
+    test_process_failure(use_actors=True)
+    test_process_failure(use_actors=False)
+    node_to_kill = test_node_failure(node_to_kill, use_actors=True)
+    node_to_kill = test_node_failure(node_to_kill, use_actors=False)
+
+
+if __name__ == "__main__":
+    import pytest
+    sys.exit(pytest.main(["-v", __file__]))

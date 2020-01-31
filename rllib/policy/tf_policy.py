@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import errno
 import logging
 import os
@@ -9,7 +5,8 @@ import os
 import numpy as np
 import ray
 import ray.experimental.tf_utils
-from ray.rllib.policy.policy import Policy, LEARNER_STATS_KEY
+from ray.rllib.policy.policy import Policy, LEARNER_STATS_KEY, \
+    ACTION_PROB, ACTION_LOGP
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.models.modelv2 import ModelV2
@@ -21,9 +18,6 @@ from ray.rllib.utils import try_import_tf
 
 tf = try_import_tf()
 logger = logging.getLogger(__name__)
-
-ACTION_PROB = "action_prob"
-ACTION_LOGP = "action_logp"
 
 
 @DeveloperAPI
@@ -56,6 +50,7 @@ class TFPolicy(Policy):
     def __init__(self,
                  observation_space,
                  action_space,
+                 config,
                  sess,
                  obs_input,
                  action_sampler,
@@ -106,9 +101,7 @@ class TFPolicy(Policy):
                 applying gradients. Otherwise we run all update ops found in
                 the current variable scope.
         """
-
-        self.observation_space = observation_space
-        self.action_space = action_space
+        super(TFPolicy, self).__init__(observation_space, action_space, config)
         self.model = model
         self._sess = sess
         self._obs_input = obs_input
@@ -299,6 +292,13 @@ class TFPolicy(Policy):
 
         Optional, only required to work with the multi-GPU optimizer."""
         raise NotImplementedError
+
+    def is_recurrent(self):
+        return len(self._state_inputs) > 0
+
+    @override(Policy)
+    def num_state_tensors(self):
+        return len(self._state_inputs)
 
     @DeveloperAPI
     def extra_compute_action_feed_dict(self):
@@ -564,7 +564,7 @@ class TFPolicy(Policy):
 
 
 @DeveloperAPI
-class LearningRateSchedule(object):
+class LearningRateSchedule:
     """Mixin for TFPolicy that adds a learning rate schedule."""
 
     @DeveloperAPI
@@ -589,21 +589,31 @@ class LearningRateSchedule(object):
 
 
 @DeveloperAPI
-class EntropyCoeffSchedule(object):
+class EntropyCoeffSchedule:
     """Mixin for TFPolicy that adds entropy coeff decay."""
 
     @DeveloperAPI
     def __init__(self, entropy_coeff, entropy_coeff_schedule):
         self.entropy_coeff = tf.get_variable(
             "entropy_coeff", initializer=entropy_coeff, trainable=False)
-        self._entropy_schedule = entropy_coeff_schedule
+
+        if entropy_coeff_schedule is None:
+            self.entropy_coeff_schedule = ConstantSchedule(entropy_coeff)
+        else:
+            # Allows for custom schedule similar to lr_schedule format
+            if isinstance(entropy_coeff_schedule, list):
+                self.entropy_coeff_schedule = PiecewiseSchedule(
+                    entropy_coeff_schedule,
+                    outside_value=entropy_coeff_schedule[-1][-1])
+            else:
+                # Implements previous version but enforces outside_value
+                self.entropy_coeff_schedule = PiecewiseSchedule(
+                    [[0, entropy_coeff], [entropy_coeff_schedule, 0.0]],
+                    outside_value=0.0)
 
     @override(Policy)
     def on_global_var_update(self, global_vars):
         super(EntropyCoeffSchedule, self).on_global_var_update(global_vars)
-        if self._entropy_schedule is not None:
-            self.entropy_coeff.load(
-                self.entropy_coeff.eval(session=self._sess) *
-                (1 - global_vars["timestep"] /
-                 self.config["entropy_coeff_schedule"]),
-                session=self._sess)
+        self.entropy_coeff.load(
+            self.entropy_coeff_schedule.value(global_vars["timestep"]),
+            session=self._sess)

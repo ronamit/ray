@@ -11,6 +11,7 @@
 
 #include "plasma/client.h"
 
+#include "ray/common/client_connection.h"
 #include "ray/common/id.h"
 #include "ray/common/status.h"
 
@@ -65,12 +66,11 @@ class ObjectStoreNotificationManager {
   std::vector<std::function<void(const ray::ObjectID &)>> rem_handlers_;
 
   plasma::PlasmaClient store_client_;
-  int c_socket_;
   int64_t length_;
   int64_t num_adds_processed_;
   int64_t num_removes_processed_;
   std::vector<uint8_t> notification_;
-  boost::asio::local::stream_protocol::socket socket_;
+  local_stream_protocol::socket socket_;
 };
 
 }  // namespace ray

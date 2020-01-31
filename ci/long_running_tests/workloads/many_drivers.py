@@ -1,14 +1,10 @@
 # This workload tests many drivers using the same cluster.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import time
 
 import ray
-from ray.tests.cluster_utils import Cluster
-from ray.tests.utils import run_string_as_driver
+from ray.cluster_utils import Cluster
+from ray.test_utils import run_string_as_driver
 
 num_redis_shards = 5
 redis_max_memory = 10**8
@@ -31,7 +27,8 @@ for i in range(num_nodes):
         num_gpus=0,
         resources={str(i): 5},
         object_store_memory=object_store_memory,
-        redis_max_memory=redis_max_memory)
+        redis_max_memory=redis_max_memory,
+        webui_host="0.0.0.0")
 ray.init(address=cluster.address)
 
 # Run the workload.

@@ -22,9 +22,33 @@ ObjectStoreNotificationManager::ObjectStoreNotificationManager(
       socket_(io_service) {
   RAY_ARROW_CHECK_OK(store_client_.Connect(store_socket_name.c_str(), "", 0, 300));
 
-  RAY_ARROW_CHECK_OK(store_client_.Subscribe(&c_socket_));
+  int c_socket;  // TODO(mehrdadn): This should be type SOCKET for Windows
+  RAY_ARROW_CHECK_OK(store_client_.Subscribe(&c_socket));
   boost::system::error_code ec;
-  socket_.assign(boost::asio::local::stream_protocol(), c_socket_, ec);
+#ifdef _WIN32
+  WSAPROTOCOL_INFO pi;
+  size_t n = sizeof(pi);
+  char *p = reinterpret_cast<char *>(&pi);
+  const int level = SOL_SOCKET;
+  const int opt = SO_PROTOCOL_INFO;
+  if (boost::asio::detail::socket_ops::getsockopt(c_socket, 0, level, opt, p, &n, ec) !=
+      boost::asio::detail::socket_error_retval) {
+    switch (pi.iAddressFamily) {
+    case AF_INET:
+      socket_.assign(local_stream_protocol::v4(), c_socket, ec);
+      break;
+    case AF_INET6:
+      socket_.assign(local_stream_protocol::v6(), c_socket, ec);
+      break;
+    default:
+      ec = boost::system::errc::make_error_code(
+          boost::system::errc::address_family_not_supported);
+      break;
+    }
+  }
+#else
+  socket_.assign(local_stream_protocol(), c_socket, ec);
+#endif
   assert(!ec.value());
   NotificationWait();
 }
@@ -43,9 +67,14 @@ void ObjectStoreNotificationManager::ProcessStoreLength(
     const boost::system::error_code &error) {
   notification_.resize(length_);
   if (error) {
-    RAY_LOG(FATAL)
-        << "Problem communicating with the object store from raylet, check logs or "
-        << "dmesg for previous errors: " << boost_to_ray_status(error).ToString();
+    // When shutting down a cluster, it's possible that the plasma store is killed
+    // earlier than raylet, in this case we don't want raylet to crash, we instead
+    // log an error message and exit.
+    RAY_LOG(ERROR) << "Failed to process store length: "
+                   << boost_to_ray_status(error).ToString()
+                   << ", most likely plasma store is down, raylet will exit";
+    // Exit raylet process.
+    _exit(kRayletStoreErrorExitCode);
   }
   boost::asio::async_read(
       socket_, boost::asio::buffer(notification_),
@@ -61,16 +90,20 @@ void ObjectStoreNotificationManager::ProcessStoreNotification(
         << "dmesg for previous errors: " << boost_to_ray_status(error).ToString();
   }
 
-  const auto &object_info =
-      flatbuffers::GetRoot<object_manager::protocol::ObjectInfo>(notification_.data());
-  const ObjectID object_id =
-      ObjectID::FromPlasmaIdBinary(object_info->object_id()->str());
-  if (object_info->is_deletion()) {
-    ProcessStoreRemove(object_id);
-  } else {
-    object_manager::protocol::ObjectInfoT result;
-    object_info->UnPackTo(&result);
-    ProcessStoreAdd(result);
+  const auto &object_notification =
+      flatbuffers::GetRoot<object_manager::protocol::PlasmaNotification>(
+          notification_.data());
+  for (size_t i = 0; i < object_notification->object_info()->size(); ++i) {
+    auto object_info = object_notification->object_info()->Get(i);
+    const ObjectID object_id =
+        ObjectID::FromPlasmaIdBinary(object_info->object_id()->str());
+    if (object_info->is_deletion()) {
+      ProcessStoreRemove(object_id);
+    } else {
+      object_manager::protocol::ObjectInfoT result;
+      object_info->UnPackTo(&result);
+      ProcessStoreAdd(result);
+    }
   }
   NotificationWait();
 }

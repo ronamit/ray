@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import copy
 import os
 import logging
@@ -78,6 +74,9 @@ class SigOptSearch(SuggestionAlgorithm):
                 "`reward_attr` is deprecated and will be removed in a future "
                 "version of Tune. "
                 "Setting `metric={}` and `mode=max`.".format(reward_attr))
+        if "use_early_stopped_trials" in kwargs:
+            logger.warning(
+                "`use_early_stopped_trials` is not used in SigOptSearch.")
 
         self._max_concurrent = max_concurrent
         self._metric = metric
@@ -118,7 +117,7 @@ class SigOptSearch(SuggestionAlgorithm):
                           result=None,
                           error=False,
                           early_terminated=False):
-        """Passes the result to SigOpt unless early terminated or errored.
+        """Notification for the completion of trial.
 
         If a trial fails, it will be reported as a failed Observation, telling
         the optimizer that the Suggestion led to a metric failure, which

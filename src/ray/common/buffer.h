@@ -24,6 +24,8 @@ class Buffer {
   /// Whether this buffer owns the data.
   virtual bool OwnsData() const = 0;
 
+  virtual bool IsPlasmaBuffer() const = 0;
+
   virtual ~Buffer(){};
 
   bool operator==(const Buffer &rhs) const {
@@ -53,7 +55,8 @@ class LocalMemoryBuffer : public Buffer {
       : has_data_copy_(copy_data) {
     if (copy_data) {
       RAY_CHECK(data != nullptr);
-      buffer_.insert(buffer_.end(), data, data + size);
+      buffer_.resize(size);
+      std::copy(data, data + size, buffer_.begin());
       data_ = buffer_.data();
       size_ = buffer_.size();
     } else {
@@ -75,7 +78,9 @@ class LocalMemoryBuffer : public Buffer {
 
   bool OwnsData() const override { return has_data_copy_; }
 
-  ~LocalMemoryBuffer() {}
+  bool IsPlasmaBuffer() const override { return false; }
+
+  ~LocalMemoryBuffer() { size_ = 0; }
 
  private:
   /// Disable copy constructor and assignment, as default copy will
@@ -104,6 +109,8 @@ class PlasmaBuffer : public Buffer {
   size_t Size() const override { return buffer_->size(); }
 
   bool OwnsData() const override { return true; }
+
+  bool IsPlasmaBuffer() const override { return true; }
 
  private:
   /// shared_ptr to arrow buffer which can potentially hold a reference

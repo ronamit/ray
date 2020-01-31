@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import copy
 import hashlib
 import json
@@ -70,7 +66,8 @@ def _bootstrap_config(config):
     return resolved_config
 
 
-def teardown_cluster(config_file, yes, workers_only, override_cluster_name):
+def teardown_cluster(config_file, yes, workers_only, override_cluster_name,
+                     keep_min_workers):
     """Destroys all nodes of a Ray cluster described by a config json."""
 
     config = yaml.safe_load(open(config_file).read())
@@ -85,21 +82,25 @@ def teardown_cluster(config_file, yes, workers_only, override_cluster_name):
     try:
 
         def remaining_nodes():
-            if workers_only:
-                A = []
-            else:
-                A = [
-                    node_id for node_id in provider.non_terminated_nodes({
-                        TAG_RAY_NODE_TYPE: NODE_TYPE_HEAD
-                    })
-                ]
 
-            A += [
-                node_id for node_id in provider.non_terminated_nodes({
-                    TAG_RAY_NODE_TYPE: NODE_TYPE_WORKER
-                })
-            ]
-            return A
+            workers = provider.non_terminated_nodes({
+                TAG_RAY_NODE_TYPE: NODE_TYPE_WORKER
+            })
+
+            if keep_min_workers:
+                min_workers = config.get("min_workers", 0)
+                logger.info("teardown_cluster: "
+                            "Keeping {} nodes...".format(min_workers))
+                workers = random.sample(workers, len(workers) - min_workers)
+
+            if workers_only:
+                return workers
+
+            head = provider.non_terminated_nodes({
+                TAG_RAY_NODE_TYPE: NODE_TYPE_HEAD
+            })
+
+            return head + workers
 
         # Loop here to check that both the head and worker nodes are actually
         #   really gone
@@ -204,9 +205,16 @@ def get_or_create_head_node(config, config_file, no_restart, restart_only, yes,
                 config["cluster_name"])
             provider.create_node(config["head_node"], head_node_tags, 1)
 
-        nodes = provider.non_terminated_nodes(head_node_tags)
-        assert len(nodes) == 1, "Failed to create head node."
-        head_node = nodes[0]
+        start = time.time()
+        head_node = None
+        while True:
+            if time.time() - start > 5:
+                raise RuntimeError("Failed to create head node.")
+            nodes = provider.non_terminated_nodes(head_node_tags)
+            if len(nodes) == 1:
+                head_node = nodes[0]
+                break
+            time.sleep(1)
 
         # TODO(ekl) right now we always update the head node even if the hash
         # matches. We could prompt the user for what they want to do here.

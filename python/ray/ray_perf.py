@@ -11,7 +11,7 @@ filter_pattern = os.environ.get("TESTS_TO_RUN", "")
 
 
 @ray.remote(num_cpus=0)
-class Actor(object):
+class Actor:
     def small_value(self):
         return b"ok"
 
@@ -23,7 +23,7 @@ class Actor(object):
 
 
 @ray.remote(num_cpus=0)
-class Client(object):
+class Client:
     def __init__(self, servers):
         if not isinstance(servers, list):
             servers = [servers]
@@ -142,14 +142,31 @@ def main():
     def actor_sync():
         ray.get(a.small_value.remote())
 
-    timeit("single client actor calls sync", actor_sync)
+    timeit("1:1 actor calls sync", actor_sync)
 
     a = Actor.remote()
 
     def actor_async():
         ray.get([a.small_value.remote() for _ in range(1000)])
 
-    timeit("single client actor calls async", actor_async, 1000)
+    timeit("1:1 actor calls async", actor_async, 1000)
+
+    a = Actor.options(max_concurrency=16).remote()
+
+    def actor_concurrent():
+        ray.get([a.small_value.remote() for _ in range(1000)])
+
+    timeit("1:1 actor calls concurrent", actor_concurrent, 1000)
+
+    n = 5000
+    n_cpu = multiprocessing.cpu_count() // 2
+    actors = [Actor._remote() for _ in range(n_cpu)]
+    client = Client.remote(actors)
+
+    def actor_async_direct():
+        ray.get(client.small_value_batch.remote(n))
+
+    timeit("1:n actor calls async", actor_async_direct, n * len(actors))
 
     n_cpu = multiprocessing.cpu_count() // 2
     a = [Actor.remote() for _ in range(n_cpu)]
@@ -161,36 +178,17 @@ def main():
     def actor_multi2():
         ray.get([work.remote(a) for _ in range(m)])
 
-    timeit("multi client actor calls async", actor_multi2, m * n)
-
-    n = 5000
-    n_cpu = multiprocessing.cpu_count() // 2
-    actors = [Actor._remote(is_direct_call=True) for _ in range(n_cpu)]
-    client = Client.remote(actors)
-
-    def actor_async_direct():
-        ray.get(client.small_value_batch.remote(n))
-
-    timeit("single client direct actor calls async", actor_async_direct,
-           n * len(actors))
-
-    clients = [Client.remote(a) for a in actors]
-
-    def actor_multi2_direct():
-        ray.get([c.small_value_batch.remote(n) for c in clients])
-
-    timeit("multi client direct actor calls async", actor_multi2_direct,
-           n * len(clients))
+    timeit("n:n actor calls async", actor_multi2, m * n)
 
     n = 1000
-    actors = [Actor._remote(is_direct_call=True) for _ in range(n_cpu)]
+    actors = [Actor._remote() for _ in range(n_cpu)]
     clients = [Client.remote(a) for a in actors]
 
     def actor_multi2_direct_arg():
         ray.get([c.small_value_batch_arg.remote(n) for c in clients])
 
-    timeit("multi client direct actor calls with arg async",
-           actor_multi2_direct_arg, n * len(clients))
+    timeit("n:n actor calls with arg async", actor_multi2_direct_arg,
+           n * len(clients))
 
 
 if __name__ == "__main__":

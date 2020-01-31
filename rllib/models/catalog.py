@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import gym
 import logging
 import numpy as np
@@ -28,6 +24,7 @@ from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.utils import try_import_tf
 from ray.rllib.utils.annotations import DeveloperAPI, PublicAPI
 from ray.rllib.utils.error import UnsupportedSpaceException
+from ray.rllib.utils.deprecation import deprecation_warning
 
 tf = try_import_tf()
 
@@ -78,21 +75,22 @@ MODEL_DEFAULTS = {
     "zero_mean": True,
 
     # === Options for custom models ===
-    # Name of a custom preprocessor to use
-    "custom_preprocessor": None,
     # Name of a custom model to use
     "custom_model": None,
     # Name of a custom action distribution to use
     "custom_action_dist": None,
     # Extra options to pass to the custom classes
     "custom_options": {},
+    # Custom preprocessors are deprecated. Please use a wrapper class around
+    # your environment instead to preprocess observations.
+    "custom_preprocessor": None,
 }
 # __sphinx_doc_end__
 # yapf: enable
 
 
 @PublicAPI
-class ModelCatalog(object):
+class ModelCatalog:
     """Registry of models, preprocessors, and action distributions for envs.
 
     Examples:
@@ -108,20 +106,31 @@ class ModelCatalog(object):
 
     @staticmethod
     @DeveloperAPI
-    def get_action_dist(action_space, config, dist_type=None, torch=False):
-        """Returns action distribution class and size for the given action space.
+    def get_action_dist(
+        action_space, config, dist_type=None, torch=None,
+        framework="tf"
+    ):
+        """
+        Returns action distribution class and size for the given action space.
 
         Args:
             action_space (Space): Action space of the target gym env.
             config (dict): Optional model config.
             dist_type (str): Optional identifier of the action distribution.
-            torch (bool):  Optional whether to return PyTorch distribution.
+            torch (bool): Obsoleted: Whether to return PyTorch Model and
+                distribution (use framework="torch" instead).
+            framework (str): One of "tf" or "torch".
 
         Returns:
             dist_class (ActionDistribution): Python class of the distribution.
             dist_dim (int): The size of the input vector to the distribution.
         """
+        # Obsoleted parameter `torch`:
+        if torch is not None:
+            deprecation_warning("`torch` parameter", "`framework`='tf|torch'")
+            framework = "torch" if torch else "tf"
 
+        dist = None
         config = config or MODEL_DEFAULTS
         if config.get("custom_action_dist"):
             action_dist_name = config["custom_action_dist"]
@@ -138,15 +147,17 @@ class ModelCatalog(object):
                     "using a custom action distribution, "
                     "using a Tuple action space, or the multi-agent API.")
             if dist_type is None:
-                dist = TorchDiagGaussian if torch else DiagGaussian
+                dist = DiagGaussian if framework == "tf" else TorchDiagGaussian
             elif dist_type == "deterministic":
                 dist = Deterministic
         elif isinstance(action_space, gym.spaces.Discrete):
-            dist = TorchCategorical if torch else Categorical
+            dist = Categorical if framework == "tf" else TorchCategorical
         elif isinstance(action_space, gym.spaces.Tuple):
-            if torch:
-                raise NotImplementedError("Tuple action spaces not supported "
-                                          "for Pytorch.")
+            if framework == "torch":
+                # TODO(sven): implement
+                raise NotImplementedError(
+                    "Tuple action spaces not supported for Pytorch."
+                )
             child_dist = []
             input_lens = []
             for action in action_space.spaces:
@@ -160,21 +171,32 @@ class ModelCatalog(object):
                 action_space=action_space,
                 input_lens=input_lens), sum(input_lens)
         elif isinstance(action_space, Simplex):
-            if torch:
-                raise NotImplementedError("Simplex action spaces not "
-                                          "supported for Pytorch.")
+            if framework == "torch":
+                # TODO(sven): implement
+                raise NotImplementedError(
+                    "Simplex action spaces not supported for Pytorch."
+                )
             dist = Dirichlet
         elif isinstance(action_space, gym.spaces.MultiDiscrete):
-            if torch:
-                raise NotImplementedError("MultiDiscrete action spaces not "
-                                          "supported for Pytorch.")
+            if framework == "torch":
+                # TODO(sven): implement
+                raise NotImplementedError(
+                    "MultiDiscrete action spaces not supported for Pytorch."
+                )
             return partial(MultiCategorical, input_lens=action_space.nvec), \
                 int(sum(action_space.nvec))
+        elif isinstance(action_space, gym.spaces.Dict):
+            # TODO(sven): implement
+            raise NotImplementedError(
+                "Dict action spaces are not supported, consider using "
+                "gym.spaces.Tuple instead"
+            )
+        else:
+            raise NotImplementedError(
+                "Unsupported args: {} {}".format(action_space, dist_type)
+            )
 
         return dist, dist.required_model_output_shape(action_space, config)
-
-        raise NotImplementedError("Unsupported args: {} {}".format(
-            action_space, dist_type))
 
     @staticmethod
     @DeveloperAPI
@@ -204,6 +226,10 @@ class ModelCatalog(object):
                     all_discrete = False
                     size += np.product(action_space.spaces[i].shape)
             return (tf.int64 if all_discrete else tf.float32, (None, size))
+        elif isinstance(action_space, gym.spaces.Dict):
+            raise NotImplementedError(
+                "Dict action spaces are not supported, consider using "
+                "gym.spaces.Tuple instead")
         else:
             raise NotImplementedError("action space {}"
                                       " not supported".format(action_space))
@@ -257,12 +283,11 @@ class ModelCatalog(object):
             model_cls = _global_registry.get(RLLIB_MODEL,
                                              model_config["custom_model"])
             if issubclass(model_cls, ModelV2):
-                if model_interface and not issubclass(model_cls,
-                                                      model_interface):
-                    raise ValueError("The given model must subclass",
-                                     model_interface)
-
                 if framework == "tf":
+                    logger.info("Wrapping {} as {}".format(
+                        model_cls, model_interface))
+                    model_cls = ModelCatalog._wrap_if_needed(
+                        model_cls, model_interface)
                     created = set()
 
                     # Track and warn if vars were created but not registered
@@ -361,6 +386,12 @@ class ModelCatalog(object):
         if options.get("custom_preprocessor"):
             preprocessor = options["custom_preprocessor"]
             logger.info("Using custom preprocessor {}".format(preprocessor))
+            logger.warning(
+                "DeprecationWarning: Custom preprocessors are deprecated, "
+                "since they sometimes conflict with the built-in "
+                "preprocessors for handling complex observation spaces. "
+                "Please use wrapper classes around your environment "
+                "instead of preprocessors.")
             prep = _global_registry.get(RLLIB_PREPROCESSOR, preprocessor)(
                 observation_space, options)
         else:
@@ -504,7 +535,7 @@ class ModelCatalog(object):
                 state_in=state_in,
                 seq_lens=seq_lens)
 
-        obs_rank = len(input_dict["obs"].shape) - 1
+        obs_rank = len(input_dict["obs"].shape) - 1  # drops batch dim
 
         if obs_rank > 2:
             return VisionNetwork(input_dict, obs_space, action_space,
@@ -516,7 +547,7 @@ class ModelCatalog(object):
     @staticmethod
     def _get_v2_model(obs_space, options):
         options = options or MODEL_DEFAULTS
-        obs_rank = len(obs_space.shape) - 1
+        obs_rank = len(obs_space.shape)
 
         if options.get("use_lstm"):
             return None  # TODO: default LSTM v2 not implemented

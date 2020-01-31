@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import argparse
 import yaml
 
 import ray
-from ray.tests.cluster_utils import Cluster
+from ray.cluster_utils import Cluster
 from ray.tune.config_parser import make_parser
 from ray.tune.result import DEFAULT_RESULTS_DIR
 from ray.tune.resources import resources_to_json
 from ray.tune.tune import _make_scheduler, run_experiments
+from ray.rllib.utils.framework import try_import_tf, try_import_torch
+
+# Try to import both backends for flag checking/warnings.
+tf = try_import_tf()
+torch, _ = try_import_torch()
 
 EXAMPLE_USAGE = """
 Training example via RLlib CLI:
@@ -89,9 +90,17 @@ def create_parser(parser_creator=None):
         type=str,
         help="Optional URI to sync training results to (e.g. s3://bucket).")
     parser.add_argument(
+        "-v", action="store_true", help="Whether to use INFO level logging.")
+    parser.add_argument(
+        "-vv", action="store_true", help="Whether to use DEBUG level logging.")
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Whether to attempt to resume previous Tune experiments.")
+    parser.add_argument(
+        "--torch",
+        action="store_true",
+        help="Whether to use PyTorch (instead of tf) as the DL framework.")
     parser.add_argument(
         "--eager",
         action="store_true",
@@ -143,6 +152,7 @@ def run(args, parser):
             }
         }
 
+    verbose = 1
     for exp in experiments.values():
         if not exp.get("run"):
             parser.error("the following arguments are required: --run")
@@ -150,6 +160,14 @@ def run(args, parser):
             parser.error("the following arguments are required: --env")
         if args.eager:
             exp["config"]["eager"] = True
+        if args.torch:
+            exp["config"]["use_pytorch"] = True
+        if args.v:
+            exp["config"]["log_level"] = "INFO"
+            verbose = 2
+        if args.vv:
+            exp["config"]["log_level"] = "DEBUG"
+            verbose = 3
         if args.trace:
             if not exp["config"].get("eager"):
                 raise ValueError("Must enable --eager to enable tracing.")
@@ -177,7 +195,9 @@ def run(args, parser):
         experiments,
         scheduler=_make_scheduler(args),
         queue_trials=args.queue_trials,
-        resume=args.resume)
+        resume=args.resume,
+        verbose=verbose,
+        concurrent=True)
 
 
 if __name__ == "__main__":

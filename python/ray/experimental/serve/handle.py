@@ -1,4 +1,3 @@
-import ray
 from ray.experimental import serve
 from ray.experimental.serve.context import TaskContext
 from ray.experimental.serve.exceptions import RayServeException
@@ -36,13 +35,24 @@ class RayServeHandle:
             raise RayServeException(
                 "handle.remote must be invoked with keyword arguments.")
 
-        result_object_id_bytes = ray.get(
-            self.router_handle.enqueue_request.remote(
-                service=self.endpoint_name,
-                request_args=(),
-                request_kwargs=kwargs,
-                request_context=TaskContext.Python))
-        return ray.ObjectID(result_object_id_bytes)
+        # get slo_ms before enqueuing the query
+        request_slo_ms = kwargs.pop("slo_ms", None)
+        if request_slo_ms is not None:
+            try:
+                request_slo_ms = float(request_slo_ms)
+                if request_slo_ms < 0:
+                    raise ValueError(
+                        "Request SLO must be positive, it is {}".format(
+                            request_slo_ms))
+            except ValueError as e:
+                raise RayServeException(str(e))
+
+        return self.router_handle.enqueue_request.remote(
+            service=self.endpoint_name,
+            request_args=(),
+            request_kwargs=kwargs,
+            request_context=TaskContext.Python,
+            request_slo_ms=request_slo_ms)
 
     def get_traffic_policy(self):
         # TODO(simon): This method is implemented via checking global state

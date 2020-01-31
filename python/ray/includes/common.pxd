@@ -2,7 +2,7 @@ from libcpp cimport bool as c_bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string as c_string
 
-from libc.stdint cimport uint8_t, uint64_t, int64_t
+from libc.stdint cimport uint8_t, int32_t, uint64_t, int64_t
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector as c_vector
 
@@ -74,7 +74,16 @@ cdef extern from "ray/common/status.h" namespace "ray" nogil:
         CRayStatus RedisError(const c_string &msg)
 
         @staticmethod
+        CRayStatus TimedOut(const c_string &msg)
+
+        @staticmethod
         CRayStatus Interrupted(const c_string &msg)
+
+        @staticmethod
+        CRayStatus IntentionalSystemExit()
+
+        @staticmethod
+        CRayStatus UnexpectedSystemExit()
 
         c_bool ok()
         c_bool IsOutOfMemory()
@@ -86,7 +95,9 @@ cdef extern from "ray/common/status.h" namespace "ray" nogil:
         c_bool IsNotImplemented()
         c_bool IsObjectStoreFull()
         c_bool IsRedisError()
+        c_bool IsTimedOut()
         c_bool IsInterrupted()
+        c_bool IsSystemExit()
 
         c_string ToString()
         c_string CodeAsString()
@@ -124,6 +135,10 @@ cdef extern from "ray/protobuf/common.pb.h" nogil:
         pass
     cdef cppclass CTaskType "ray::TaskType":
         pass
+    cdef cppclass CAddress "ray::rpc::Address":
+        CAddress()
+        const c_string &SerializeAsString()
+        void ParseFromString(const c_string &serialized)
 
 
 # This is a workaround for C++ enum class since Cython has no corresponding
@@ -180,6 +195,7 @@ cdef extern from "ray/common/ray_object.h" nogil:
         const size_t DataSize() const
         const shared_ptr[CBuffer] &GetData()
         const shared_ptr[CBuffer] &GetMetadata() const
+        c_bool IsInPlasmaError() const
 
 cdef extern from "ray/core_worker/common.h" nogil:
     cdef cppclass CRayFunction "ray::RayFunction":
@@ -198,19 +214,20 @@ cdef extern from "ray/core_worker/common.h" nogil:
 
     cdef cppclass CTaskOptions "ray::TaskOptions":
         CTaskOptions()
-        CTaskOptions(int num_returns,
+        CTaskOptions(int num_returns, c_bool is_direct_call,
                      unordered_map[c_string, double] &resources)
 
     cdef cppclass CActorCreationOptions "ray::ActorCreationOptions":
         CActorCreationOptions()
         CActorCreationOptions(
             uint64_t max_reconstructions, c_bool is_direct_call,
+            int32_t max_concurrency,
             const unordered_map[c_string, double] &resources,
             const unordered_map[c_string, double] &placement_resources,
             const c_vector[c_string] &dynamic_worker_options,
-            c_bool is_detached)
+            c_bool is_detached, c_bool is_asyncio)
 
-cdef extern from "ray/gcs/gcs_client_interface.h" nogil:
+cdef extern from "ray/gcs/gcs_client.h" nogil:
     cdef cppclass CGcsClientOptions "ray::gcs::GcsClientOptions":
         CGcsClientOptions(const c_string &ip, int port,
                           const c_string &password,

@@ -1,13 +1,9 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import pytest
 import redis
 
 import ray
-from ray.tests.cluster_utils import Cluster
+from ray.cluster_utils import Cluster
 
 
 @pytest.fixture
@@ -18,7 +14,7 @@ def password():
     return random_bytes.encode("hex")  # Python 2
 
 
-class TestRedisPassword(object):
+class TestRedisPassword:
     @pytest.mark.skipif(
         os.environ.get("RAY_USE_NEW_GCS") == "on",
         reason="New GCS API doesn't support Redis authentication yet.")
@@ -61,3 +57,9 @@ class TestRedisPassword(object):
 
         object_id = f.remote()
         ray.get(object_id)
+
+
+if __name__ == "__main__":
+    import pytest
+    import sys
+    sys.exit(pytest.main(["-v", __file__]))

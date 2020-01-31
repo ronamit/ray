@@ -36,7 +36,7 @@ ActorRegistration::ActorRegistration(const ActorTableData &actor_table_data,
 }
 
 const ClientID ActorRegistration::GetNodeManagerId() const {
-  return ClientID::FromBinary(actor_table_data_.node_manager_id());
+  return ClientID::FromBinary(actor_table_data_.address().raylet_id());
 }
 
 const ObjectID ActorRegistration::GetActorCreationDependency() const {
@@ -120,6 +120,9 @@ std::shared_ptr<ActorCheckpointData> ActorRegistration::GenerateCheckpointData(
     checkpoint_data->add_unreleased_dummy_objects(entry.first.Binary());
     checkpoint_data->add_num_dummy_object_dependencies(entry.second);
   }
+
+  ActorCheckpointID checkpoint_id = ActorCheckpointID::FromRandom();
+  checkpoint_data->set_checkpoint_id(checkpoint_id.Binary());
   return checkpoint_data;
 }
 

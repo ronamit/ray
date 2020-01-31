@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import copy
 import hashlib
 import json
@@ -106,6 +102,7 @@ CLUSTER_CONFIG_SCHEMA = {
         {
             "image": (str, OPTIONAL),  # e.g. tensorflow/tensorflow:1.5.0-py3
             "container_name": (str, OPTIONAL),  # e.g., ray_docker
+            "pull_before_run": (bool, OPTIONAL),  # run `docker pull` first
             # shared options for starting head/worker docker
             "run_options": (list, OPTIONAL),
 
@@ -155,7 +152,7 @@ CLUSTER_CONFIG_SCHEMA = {
 }
 
 
-class LoadMetrics(object):
+class LoadMetrics:
     """Container for cluster load metrics.
 
     Metrics here are updated from raylet heartbeats. The autoscaler
@@ -278,7 +275,7 @@ class LoadMetrics(object):
             now - t for t in self.last_heartbeat_time_by_ip.values()
         ]
         most_delayed_heartbeats = sorted(
-            list(self.last_heartbeat_time_by_ip.items()),
+            self.last_heartbeat_time_by_ip.items(),
             key=lambda pair: pair[1])[:5]
         most_delayed_heartbeats = {
             ip: (now - t)
@@ -354,7 +351,7 @@ class NodeLauncher(threading.Thread):
         logger.info(prefix + " {}".format(statement))
 
 
-class ConcurrentCounter(object):
+class ConcurrentCounter:
     def __init__(self):
         self._value = 0
         self._lock = threading.Lock()
@@ -376,7 +373,7 @@ class ConcurrentCounter(object):
             return self._value
 
 
-class StandardAutoscaler(object):
+class StandardAutoscaler:
     """The autoscaling control loop for a Ray cluster.
 
     There are two ways to start an autoscaling cluster: manually by running

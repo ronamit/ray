@@ -1,6 +1,11 @@
 #ifndef RAY_GCS_CALLBACK_H
 #define RAY_GCS_CALLBACK_H
 
+#if defined(__clang__) && defined(_MSC_VER)
+// TODO(mehrdadn): Remove this Windows (clang-cl) workaround once we upgrade to
+// Boost > 1.68: https://lists.boost.org/Archives/boost/2018/09/243420.php
+#include <boost/type_traits.hpp>
+#endif
 #include <boost/optional/optional.hpp>
 #include <vector>
 #include "ray/common/status.h"
@@ -33,6 +38,11 @@ using MultiItemCallback =
 /// \param result The notification message.
 template <typename ID, typename Data>
 using SubscribeCallback = std::function<void(const ID &id, const Data &result)>;
+
+/// This callback is used to receive a single item from GCS.
+/// \param result The item returned by GCS.
+template <typename Data>
+using ItemCallback = std::function<void(const Data &result)>;
 
 }  // namespace gcs
 

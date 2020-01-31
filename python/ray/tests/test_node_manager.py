@@ -1,9 +1,5 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import ray
-from ray.tests.utils import run_string_as_driver
+from ray.test_utils import run_string_as_driver
 
 
 # This tests the queue transitions for infeasible tasks. This has been an issue
@@ -48,3 +44,9 @@ f.remote()
     ray.get([
         f._submit(args=[], kwargs={}, resources={str(i): 1}) for i in range(3)
     ])
+
+
+if __name__ == "__main__":
+    import pytest
+    import sys
+    sys.exit(pytest.main(["-v", __file__]))

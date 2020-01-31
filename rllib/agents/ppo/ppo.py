@@ -1,16 +1,14 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 
 from ray.rllib.agents import with_common_config
-from ray.rllib.agents.ppo.ppo_policy import PPOTFPolicy
+from ray.rllib.agents.ppo.ppo_tf_policy import PPOTFPolicy
 from ray.rllib.agents.trainer_template import build_trainer
-from ray.rllib.optimizers import SyncSamplesOptimizer, LocalMultiGPUOptimizer
+from ray.rllib.optimizers import SyncSamplesOptimizer, \
+    LocalMultiGPUOptimizer, TorchDistributedDataParallelOptimizer
 from ray.rllib.utils import try_import_tf
 
 tf = try_import_tf()
+
 logger = logging.getLogger(__name__)
 
 # yapf: disable
@@ -19,56 +17,91 @@ DEFAULT_CONFIG = with_common_config({
     # If true, use the Generalized Advantage Estimator (GAE)
     # with a value function, see https://arxiv.org/pdf/1506.02438.pdf.
     "use_gae": True,
-    # GAE(lambda) parameter
+    # The GAE(lambda) parameter.
     "lambda": 1.0,
-    # Initial coefficient for KL divergence
+    # Initial coefficient for KL divergence.
     "kl_coeff": 0.2,
-    # Size of batches collected from each worker
+    # Size of batches collected from each worker.
     "sample_batch_size": 200,
-    # Number of timesteps collected for each SGD round
+    # Number of timesteps collected for each SGD round. This defines the size
+    # of each SGD epoch.
     "train_batch_size": 4000,
-    # Total SGD batch size across all devices for SGD
+    # Total SGD batch size across all devices for SGD. This defines the
+    # minibatch size within each epoch.
     "sgd_minibatch_size": 128,
-    # Whether to shuffle sequences in the batch when training (recommended)
+    # Whether to shuffle sequences in the batch when training (recommended).
     "shuffle_sequences": True,
-    # Number of SGD iterations in each outer loop
+    # Number of SGD iterations in each outer loop (i.e., number of epochs to
+    # execute per train batch).
     "num_sgd_iter": 30,
-    # Stepsize of SGD
+    # Stepsize of SGD.
     "lr": 5e-5,
-    # Learning rate schedule
+    # Learning rate schedule.
     "lr_schedule": None,
     # Share layers for value function. If you set this to True, it's important
     # to tune vf_loss_coeff.
     "vf_share_layers": False,
-    # Coefficient of the value function loss. It's important to tune this if
-    # you set vf_share_layers: True
+    # Coefficient of the value function loss. IMPORTANT: you must tune this if
+    # you set vf_share_layers: True.
     "vf_loss_coeff": 1.0,
-    # Coefficient of the entropy regularizer
+    # Coefficient of the entropy regularizer.
     "entropy_coeff": 0.0,
-    # Decay schedule for the entropy regularizer
+    # Decay schedule for the entropy regularizer.
     "entropy_coeff_schedule": None,
-    # PPO clip parameter
+    # PPO clip parameter.
     "clip_param": 0.3,
     # Clip param for the value function. Note that this is sensitive to the
     # scale of the rewards. If your expected V is large, increase this.
     "vf_clip_param": 10.0,
-    # If specified, clip the global norm of gradients by this amount
+    # If specified, clip the global norm of gradients by this amount.
     "grad_clip": None,
-    # Target value for KL divergence
+    # Target value for KL divergence.
     "kl_target": 0.01,
-    # Whether to rollout "complete_episodes" or "truncate_episodes"
+    # Whether to rollout "complete_episodes" or "truncate_episodes".
     "batch_mode": "truncate_episodes",
-    # Which observation filter to apply to the observation
+    # Which observation filter to apply to the observation.
     "observation_filter": "NoFilter",
-    # Uses the sync samples optimizer instead of the multi-gpu one. This does
-    # not support minibatches.
+    # Uses the sync samples optimizer instead of the multi-gpu one. This is
+    # usually slower, but you might want to try it if you run into issues with
+    # the default optimizer.
     "simple_optimizer": False,
+    # Use the experimental torch multi-node SGD optimizer.
+    "distributed_data_parallel_optimizer": False,
+    # Use PyTorch as framework?
+    "use_pytorch": False
 })
 # __sphinx_doc_end__
 # yapf: enable
 
 
 def choose_policy_optimizer(workers, config):
+    if config["distributed_data_parallel_optimizer"]:
+        if not config["use_pytorch"]:
+            raise ValueError(
+                "Distributed data parallel is only supported for PyTorch")
+        if config["num_gpus"]:
+            raise ValueError(
+                "When using distributed data parallel, you should set "
+                "num_gpus=0 since all optimization "
+                "is happening on workers. Enable GPUs for workers by setting "
+                "num_gpus_per_worker=1.")
+        if config["batch_mode"] != "truncate_episodes":
+            raise ValueError(
+                "Distributed data parallel requires truncate_episodes "
+                "batch mode.")
+        if config["sample_batch_size"] != config["train_batch_size"]:
+            raise ValueError(
+                "Distributed data parallel requires sample_batch_size to be "
+                "equal to train_batch_size. Each worker will sample and learn "
+                "on train_batch_size samples per iteration.")
+
+        return TorchDistributedDataParallelOptimizer(
+            workers,
+            num_sgd_iter=config["num_sgd_iter"],
+            train_batch_size=config["train_batch_size"],
+            sgd_minibatch_size=config["sgd_minibatch_size"],
+            standardize_fields=["advantages"])
+
     if config["simple_optimizer"]:
         return SyncSamplesOptimizer(
             workers,
@@ -107,11 +140,26 @@ def update_kl(trainer, fetches):
 
 
 def warn_about_bad_reward_scales(trainer, result):
+    if result["policy_reward_mean"]:
+        return  # Punt on handling multiagent case.
+
+    # Warn about excessively high VF loss.
+    learner_stats = result["info"]["learner"]
+    if "default_policy" in learner_stats:
+        scaled_vf_loss = (trainer.config["vf_loss_coeff"] *
+                          learner_stats["default_policy"]["vf_loss"])
+        policy_loss = learner_stats["default_policy"]["policy_loss"]
+        if trainer.config["vf_share_layers"] and scaled_vf_loss > 100:
+            logger.warning(
+                "The magnitude of your value function loss is extremely large "
+                "({}) compared to the policy loss ({}). This can prevent the "
+                "policy from learning. Consider scaling down the VF loss by "
+                "reducing vf_loss_coeff, or disabling vf_share_layers.".format(
+                    scaled_vf_loss, policy_loss))
+
     # Warn about bad clipping configs
     if trainer.config["vf_clip_param"] <= 0:
         rew_scale = float("inf")
-    elif result["policy_reward_mean"]:
-        rew_scale = 0  # punt on handling multiagent case
     else:
         rew_scale = round(
             abs(result["episode_reward_mean"]) /
@@ -148,14 +196,23 @@ def validate_config(config):
         logger.warning(
             "Using the simple minibatch optimizer. This will significantly "
             "reduce performance, consider simple_optimizer=False.")
-    elif tf and tf.executing_eagerly():
+    elif config["use_pytorch"] or (tf and tf.executing_eagerly()):
         config["simple_optimizer"] = True  # multi-gpu not supported
+
+
+def get_policy_class(config):
+    if config.get("use_pytorch") is True:
+        from ray.rllib.agents.ppo.ppo_torch_policy import PPOTorchPolicy
+        return PPOTorchPolicy
+    else:
+        return PPOTFPolicy
 
 
 PPOTrainer = build_trainer(
     name="PPO",
     default_config=DEFAULT_CONFIG,
     default_policy=PPOTFPolicy,
+    get_policy_class=get_policy_class,
     make_policy_optimizer=choose_policy_optimizer,
     validate_config=validate_config,
     after_optimizer_step=update_kl,

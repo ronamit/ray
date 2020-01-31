@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import glob
 import gym
 import json
@@ -15,7 +11,7 @@ import unittest
 
 import ray
 from ray.rllib.agents.pg import PGTrainer
-from ray.rllib.agents.pg.pg_policy import PGTFPolicy
+from ray.rllib.agents.pg.pg_tf_policy import PGTFPolicy
 from ray.rllib.evaluation import SampleBatch
 from ray.rllib.offline import IOContext, JsonWriter, JsonReader
 from ray.rllib.offline.json_writer import _to_json
@@ -240,7 +236,8 @@ class JsonIOTest(unittest.TestCase):
         self.assertEqual(len(os.listdir(self.test_dir)), 0)
         for _ in range(100):
             writer.write(SAMPLES)
-        self.assertEqual(len(os.listdir(self.test_dir)), 12)
+        num_files = len(os.listdir(self.test_dir))
+        assert num_files in [12, 13], num_files
 
     def testReadWrite(self):
         ioctx = IOContext(self.test_dir, {}, 0, None)
