@@ -39,7 +39,7 @@ plt.rcParams.update(plt_params)
 parser = argparse.ArgumentParser()
 parser.add_argument('--run-name', type=str, help='Name of dir to save results in (if empty, name by time)', default='')
 parser.add_argument('--seed', type=int,  help='random seed', default=1)
-parser.add_argument("--env", default="Ant-v2")  # OpenAI gym environment name
+parser.add_argument("--env", default="Swimmer-v2")  # OpenAI gym environment name
 parser.add_argument("--default_discount", default=0.999)  # Default Discount factor
 parser.add_argument('--timesteps_total', type=int,  default=1e5)
 parser.add_argument('--learning_starts', type=int,  default=1e4)
@@ -51,17 +51,19 @@ smoke_test = False  # True/False - short  run for debug
 
 local_mode = False   # True/False - run non-parallel to get error messages and debugging
 
-save_PDF = True  # False/True - save figures as PDF file
+save_PDF = False  # False/True - save figures as PDF file
 
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
-run_mode = 'Load'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
+run_mode = 'New'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
 result_dir_to_load = './saved/2020_01_19_10_56_15'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
 #  how to create parameter grid:
-args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.99, 'stop': 0.999, 'num': 10}
+# args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'linspace', 'start': 0.99, 'stop': 0.999, 'num': 10}
+args.param_grid_def = {'type': 'gamma_guidance', 'spacing': 'list',
+                       'list': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 0.995, 0.999][::-1]}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'linspace', 'start': 2.25e-2, 'stop': 5e-2, 'num': 10}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'endpoints', 'start': 2.25e-2, 'end': 5e-2, 'num': 12}
 # args.param_grid_def = {'type': 'L2_factor', 'spacing': 'list', 'list': [0, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4]}
