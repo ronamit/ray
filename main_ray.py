@@ -218,6 +218,6 @@ if save_PDF:
     plt.title(title_prefix)
     plt.savefig(args.run_name + '.pdf', format='pdf', bbox_inches='tight')
 else:
-    plt.title(title_prefix + ' \n ' + str(args.result_dir))
+    plt.title(title_prefix + ' \n ' + str(args.result_dir), fontsize=12)
     # + 'Episode Reward Mean +- 95% CI, ' + ' \n '
 plt.show()
