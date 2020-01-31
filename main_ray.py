@@ -56,7 +56,7 @@ save_PDF = True  # False/True - save figures as PDF file
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
 run_mode = 'Load'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_03_15_27_19'
+result_dir_to_load = './saved/2020_01_19_10_56_15'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
@@ -195,7 +195,7 @@ if args.param_grid_def['type'] == 'L2_factor':
     xlabel = r'$L_2$ Factor (1e-2)'
     title_prefix = args.env + r', $L_2$ Regularization'
 elif args.param_grid_def['type'] == 'gamma_guidance':
-    xlabel = r'$\gamma$ (Guidance Discount Factor)'
+    xlabel = r'Guidance Discount Factor $\gamma$'
     title_prefix = args.env + r', Discount Regularization'
 else:
     raise ValueError('Unrecognized args.grid_type')
@@ -211,7 +211,8 @@ plt.fill_between(alg_param_grid, mean_R - std_R * ci_factor, mean_R + std_R * ci
                  color='blue', alpha=0.2)
 plt.grid(True)
 plt.xlabel(xlabel)
-# plt.ylim([2200, 3000])
+# plt.ylim([100, 900])
+# plt.xlim([0, 4])
 
 plt.ylabel('Average Episode Return')
 if save_PDF:
