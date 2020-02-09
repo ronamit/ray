@@ -56,7 +56,7 @@ save_PDF = False  # False/True - save figures as PDF file
 # Option to load previous run results (even unfinished) or continue unfinished run or start a new run:
 run_mode = 'New'   # 'New' / 'Load' / 'Continue' / 'ContinueNewGrid' / 'ContinueAddGrid'
 # If run_mode ==  'Load' / 'Continue' use this results dir:
-result_dir_to_load = './saved/2020_01_19_10_56_15'
+result_dir_to_load = './saved/2020_01_06_15_29_53'
 
 args.n_reps = 100   # 100 # number of experiment repetitions for each point in grid
 
@@ -213,7 +213,7 @@ plt.fill_between(alg_param_grid, mean_R - std_R * ci_factor, mean_R + std_R * ci
                  color='blue', alpha=0.2)
 plt.grid(True)
 plt.xlabel(xlabel)
-# plt.ylim([100, 900])
+# plt.ylim([350, 750])
 # plt.xlim([0, 4])
 
 plt.ylabel('Average Episode Return')

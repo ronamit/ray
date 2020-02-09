@@ -12,10 +12,15 @@ import pickle
 from functools import reduce
 import shutil, glob
 
-
 # -----------------------------------------------------------------------------------------------------------#
 #  Useful functions
 # -----------------------------------------------------------------------------------------------------------#
+
+def set_random_seed(seed):
+    # torch.manual_seed(seed)
+    # torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 def set_random_seed(seed):
     # torch.manual_seed(seed)
@@ -64,8 +69,8 @@ def create_result_dir(args, run_experiments=True):
         write_to_log('Results dir: ' + args.result_dir, args)
         write_to_log('-' * 50, args)
         # set the path to pre-trained model, in case it is loaded (if empty - set according to run_name)
-        # if not hasattr(args, 'load_model_path') or args.load_model_path == '':
-        #     args.load_model_path = os.path.join(args.result_dir, 'model.pt')
+        #if not hasattr(args, 'load_model_path') or args.load_model_path == '':
+        #    args.load_model_path = os.path.join(args.result_dir, 'model.pt')
 
         save_code(args.result_dir)
     else:
@@ -106,11 +111,13 @@ def save_run_data(args, info_dict, verbose=1):
         write_to_log('Results saved in ' + run_data_file_path, args)
 
 
-def load_run_data(result_dir):
+def load_run_data(result_dir, showParams=True):
     run_data_file_path = os.path.join(result_dir, 'run_data.pkl')
     with open(run_data_file_path, 'rb') as f:
        args, info_dict = pickle.load(f)
     print('Data loaded from ', run_data_file_path)
+    if showParams:
+        print('Parameters \n', args)
     return args, info_dict
 
 
@@ -126,7 +133,8 @@ def create_results_backup(result_dir):
     src = os.path.join(result_dir, 'run_data.pkl')
     dst = os.path.join(result_dir, 'backup_run_data.pkl')
     shutil.copyfile(src, dst)
-    print('Backuo of run data with original grid was saved in ', dst)
+    print('Backup of run data with original grid was saved in ', dst)
+
 
 def save_code(save_dir):
     # Create backup of code
@@ -137,4 +145,19 @@ def save_code(save_dir):
     for filename in glob.glob(os.path.join(source_dir, '*.*')):
         if ".egg-info" not in filename:
             shutil.copy(filename, dest_dir)
+
+
+
+
+ #------------------------------------------------------------------------------------------------------------~
+def sample_discrete(probs):
+    """
+    Samples a discrete distribution
+     Parameters:
+        probs - probabilities over {0,...K-1}
+    Returns:
+        drawn random integer from  {0,...K-1} according to probs
+    """
+    K = probs.size
+    return np.random.choice(K, size=1, p=probs)[0]
 
