@@ -36,7 +36,7 @@ def get_grid(param_grid_def):
         alg_param_grid = np.linspace(param_grid_def['start'], param_grid_def['end'],
                                     num=int(param_grid_def['num']), endpoint=True)
     elif param_grid_def['spacing'] == 'list':
-        alg_param_grid = np.asarray(param_grid_def['list'], )
+        alg_param_grid = np.asarray(param_grid_def['list'])
 
     else:
         raise ValueError('Invalid param_grid_def')
